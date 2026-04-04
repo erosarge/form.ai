@@ -331,7 +331,7 @@ export function DashboardClient() {
         </div>
       ) : error ? (
         <div className="card stack">
-          <div style={{ fontWeight: 650 }}>Couldn't load dashboard</div>
+          <div style={{ fontWeight: 650 }}>Couldn&apos;t load dashboard</div>
           <div className="error">{error}</div>
           <div className="muted">
             Check <code>INTERVALS_ICU_API_KEY</code> and <code>INTERVALS_ICU_ATHLETE_ID</code> in{" "}
