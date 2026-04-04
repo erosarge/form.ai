@@ -11,6 +11,13 @@ export type NormalizedLap = {
   max_hr: number | null;
   avg_cadence: number | null;
   avg_power: number | null;
+  /** Running dynamics — null when device does not provide them */
+  avg_vertical_ratio: number | null;
+  avg_ground_contact_time_ms: number | null;
+  avg_stride_length_m: number | null;
+  /** Left/right ground contact balance — 50 = perfect symmetry */
+  avg_ground_contact_balance: number | null;
+  avg_vertical_oscillation_cm: number | null;
   source: "device_lap" | "icu_interval" | "recovery_gap" | "stream_synthetic";
 };
 
@@ -27,6 +34,11 @@ export type SessionPhase = {
   max_hr: number | null;
   avg_cadence: number | null;
   avg_power: number | null;
+  avg_vertical_ratio: number | null;
+  avg_ground_contact_time_ms: number | null;
+  avg_stride_length_m: number | null;
+  avg_ground_contact_balance: number | null;
+  avg_vertical_oscillation_cm: number | null;
   /** Recovery-only: HR drop vs end of previous work phase (bpm) */
   hr_drop_from_prior_work_bpm: number | null;
 };
@@ -41,6 +53,11 @@ export type WorkIntervalSummary = {
   max_hr: number | null;
   avg_cadence: number | null;
   avg_power: number | null;
+  avg_vertical_ratio: number | null;
+  avg_ground_contact_time_ms: number | null;
+  avg_stride_length_m: number | null;
+  avg_ground_contact_balance: number | null;
+  avg_vertical_oscillation_cm: number | null;
 };
 
 export type RecoverySummary = {
@@ -57,10 +74,18 @@ export type SessionTrends = {
   hr_drift_bpm_per_rep: number | null;
   cadence_drift_per_rep: number | null;
   power_drift_w_per_rep: number | null;
+  /** Running dynamics trends across work intervals (null when not available) */
+  vertical_ratio_drift_pct_per_rep: number | null;
+  gct_drift_ms_per_rep: number | null;
+  stride_length_drift_m_per_rep: number | null;
   pace_degraded: boolean | null;
   hr_climbed_at_similar_pace: boolean | null;
   cadence_dropped: boolean | null;
   power_held: boolean | null;
+  /** Fatigue signals from running dynamics */
+  vertical_ratio_increased: boolean | null;
+  gct_increased: boolean | null;
+  stride_length_shortened: boolean | null;
   notes: string[];
 };
 
@@ -104,6 +129,15 @@ export type SingleEffortSummary = {
   hr_drift_first_to_last_third_bpm: number | null;
   avg_cadence: number | null;
   cadence_cv: number | null;
+  /** Running dynamics averages across the whole effort */
+  avg_vertical_ratio: number | null;
+  avg_ground_contact_time_ms: number | null;
+  avg_stride_length_m: number | null;
+  avg_ground_contact_balance: number | null;
+  /** Drift from first third to last third of laps (positive = drifting worse) */
+  vertical_ratio_drift_first_to_last_third: number | null;
+  gct_drift_first_to_last_third_ms: number | null;
+  stride_length_drift_first_to_last_third_m: number | null;
   total_distance_m: number | null;
   total_duration_s: number | null;
 };
@@ -221,6 +255,32 @@ function buildSingleEffortSummary(laps: NormalizedLap[], label: string): SingleE
   const cadMean = mean(cads);
   const cadCv = cadMean != null && cadMean > 0 && cads.length >= 2 ? (stdDev(cads) ?? 0) / cadMean : null;
 
+  const vrs = pl.map((l) => l.avg_vertical_ratio).filter((x): x is number => x != null && x > 0);
+  const gcts = pl.map((l) => l.avg_ground_contact_time_ms).filter((x): x is number => x != null && x > 0);
+  const sls = pl.map((l) => l.avg_stride_length_m).filter((x): x is number => x != null && x > 0);
+  const gcbs = pl.map((l) => l.avg_ground_contact_balance).filter((x): x is number => x != null && x > 0);
+
+  let vrDrift: number | null = null;
+  let gctDrift: number | null = null;
+  let slDrift: number | null = null;
+  if (pl.length >= 6) {
+    const third = Math.max(1, Math.floor(pl.length / 3));
+    const firstVrs = pl.slice(0, third).map((l) => l.avg_vertical_ratio).filter((x): x is number => x != null && x > 0);
+    const lastVrs = pl.slice(-third).map((l) => l.avg_vertical_ratio).filter((x): x is number => x != null && x > 0);
+    const vr1 = mean(firstVrs); const vr2 = mean(lastVrs);
+    if (vr1 != null && vr2 != null) vrDrift = vr2 - vr1;
+
+    const firstGcts = pl.slice(0, third).map((l) => l.avg_ground_contact_time_ms).filter((x): x is number => x != null && x > 0);
+    const lastGcts = pl.slice(-third).map((l) => l.avg_ground_contact_time_ms).filter((x): x is number => x != null && x > 0);
+    const gct1 = mean(firstGcts); const gct2 = mean(lastGcts);
+    if (gct1 != null && gct2 != null) gctDrift = gct2 - gct1;
+
+    const firstSls = pl.slice(0, third).map((l) => l.avg_stride_length_m).filter((x): x is number => x != null && x > 0);
+    const lastSls = pl.slice(-third).map((l) => l.avg_stride_length_m).filter((x): x is number => x != null && x > 0);
+    const sl1 = mean(firstSls); const sl2 = mean(lastSls);
+    if (sl1 != null && sl2 != null) slDrift = sl2 - sl1;
+  }
+
   const dist = pl.reduce((s, l) => s + (l.distance_m ?? 0), 0);
   const dur = pl.reduce((s, l) => s + (l.duration_s ?? 0), 0);
 
@@ -246,6 +306,13 @@ function buildSingleEffortSummary(laps: NormalizedLap[], label: string): SingleE
     hr_drift_first_to_last_third_bpm: hrDrift,
     avg_cadence: cadMean,
     cadence_cv: cadCv,
+    avg_vertical_ratio: mean(vrs),
+    avg_ground_contact_time_ms: mean(gcts),
+    avg_stride_length_m: mean(sls),
+    avg_ground_contact_balance: mean(gcbs),
+    vertical_ratio_drift_first_to_last_third: vrDrift,
+    gct_drift_first_to_last_third_ms: gctDrift,
+    stride_length_drift_first_to_last_third_m: slDrift,
     total_distance_m: dist > 0 ? dist : null,
     total_duration_s: dur > 0 ? dur : null,
   };
@@ -406,30 +473,50 @@ function classifySessionType(
       "THEN analyse rep-by-rep: each work interval vs each recovery.",
       "Show how pace, HR, cadence, and power evolved across reps.",
       "Use SESSION_INTERVAL_ANALYSIS_JSON work_intervals and recoveries as primary data.",
+      "RUNNING DYNAMICS — if avg_vertical_ratio, avg_ground_contact_time_ms, avg_stride_length_m, or avg_ground_contact_balance are present in work_intervals:",
+      "  For each available metric, describe the trend across reps (improving/stable/degrading) using coach language — e.g. 'Your vertical ratio started at 7.2% in rep 1 and drifted to 8.9% by the final rep, suggesting form breakdown under fatigue' or 'Ground contact time held steady at ~225ms across all reps, indicating good neuromuscular control'.",
+      "  Explicitly compare work vs recovery laps where dynamics differ.",
+      "  Flag fatigue signals from trends.vertical_ratio_increased, trends.gct_increased, trends.stride_length_shortened — name them plainly.",
+      "  Comment on consistency across reps: were mechanics repeatable or did form degrade under load?",
+      "  Skip this section gracefully if all dynamics fields are null.",
     ].join(" "),
     STEADY_RUN: [
       "SESSION_TYPE: STEADY_RUN.",
       "FIRST state this session type and why (narrow pace band / no rep structure).",
       "Do NOT go lap-by-lap. Summarise the whole run as ONE effort block.",
       "Cover: average pace, overall HR response and drift (use single_effort_summary if present), cadence stability (CV), and overall session quality for an easy/steady aerobic run.",
+      "RUNNING DYNAMICS DRIFT — if single_effort_summary contains avg_vertical_ratio, avg_ground_contact_time_ms, or avg_stride_length_m:",
+      "  Comment on whether mechanics remained consistent or drifted over time using the *_drift_first_to_last_third fields.",
+      "  Describe drift direction in coach language — e.g. 'Ground contact time rose from ~210ms in the opening kilometres to ~235ms late in the run, a sign of accumulating fatigue' or 'Vertical ratio remained stable at 7.4% throughout, showing good form discipline on an easy day'.",
+      "  Skip gracefully if all dynamics are null.",
       "End with one recommendation.",
     ].join(" "),
     PROGRESSIVE_RUN: [
       "SESSION_TYPE: PROGRESSIVE_RUN.",
       "FIRST state this session type and the progression trend (pace vs time/lap order).",
       "Comment on execution: controlled vs rushed acceleration, HR response as pace increased, and whether the progression matched the intent.",
+      "RUNNING DYNAMICS — comment on how mechanics adapted to increasing pace: did stride length lengthen as pace lifted? Did GCT shorten (a sign of better elastic energy return)? Did vertical ratio stay controlled or did it rise as effort ramped up?",
+      "Describe as a coach reading a graph — e.g. 'Stride length grew from 1.35m in the opening laps to 1.52m at race pace, showing a natural mechanical response to the faster tempo' or 'Vertical ratio crept from 7.1% to 8.4% in the final third, suggesting the pace increase was outrunning your current form ceiling'.",
       "You may reference lap order for pace trend but do not treat as interval reps.",
+      "Skip dynamics commentary gracefully if fields are null.",
     ].join(" "),
     TEMPO_THRESHOLD: [
       "SESSION_TYPE: TEMPO_THRESHOLD.",
       "FIRST state this session type — sustained threshold/tempo style block.",
       "Discuss lactate-threshold proxies: HR stability relative to pace, pacing discipline, drift late in the block, cadence and power (if present).",
+      "RUNNING DYNAMICS — comment on consistency across the sustained block using single_effort_summary dynamics fields:",
+      "  Did GCT remain stable (good neuromuscular control under sustained load) or lengthen late (fatigue)?",
+      "  Did vertical ratio hold steady or creep up (form breaking down at threshold intensity)?",
+      "  Describe the pattern as a coach would — e.g. 'Ground contact time remained consistent at 225ms throughout all 20 minutes, indicating excellent neuromuscular control despite the high intensity' or 'Vertical ratio drifted from 7.0% to 8.2% over the block, suggesting threshold pace is currently at the edge of your sustainable form'.",
+      "  Skip gracefully if all dynamics are null.",
       "Do NOT analyse as short reps unless data clearly shows surges.",
     ].join(" "),
     MIXED_SESSION: [
       "SESSION_TYPE: MIXED_SESSION.",
       "FIRST state this session type (e.g. warm-up + main set + cool-down, or varied blocks).",
       "Identify each phase (warm-up, main effort, cool-down, etc.) and analyse each with the appropriate lens (steady vs threshold vs easy).",
+      "RUNNING DYNAMICS — apply the right dynamics lens per phase: compare dynamics between warm-up and main effort (do GCT and stride length show the body has warmed up and loosened?), and between main effort and cool-down (do dynamics soften as pace drops, or show signs of fatigue even at easy pace?).",
+      "Skip dynamics commentary gracefully if fields are null.",
       "Then give one integrated recommendation for the whole session.",
     ].join(" "),
   };
@@ -514,6 +601,19 @@ function normalizeSingleLap(lap: AnyRecord, index: number, source: NormalizedLap
     max_hr: pickNumber(lap, ["max_heartrate", "max_hr"]),
     avg_cadence: pickNumber(lap, ["average_cadence", "avg_cadence", "cadence"]),
     avg_power: pickNumber(lap, ["average_watts", "avg_watts", "weighted_average_watts"]),
+    avg_vertical_ratio: pickNumber(lap, ["average_vertical_ratio", "avg_vertical_ratio", "vertical_ratio"]),
+    avg_ground_contact_time_ms: pickNumber(lap, [
+      "average_ground_contact_time", "avg_ground_contact_time",
+      "average_gct", "avg_gct", "ground_contact_time",
+    ]),
+    avg_stride_length_m: pickNumber(lap, ["average_stride_length", "avg_stride_length", "stride_length"]),
+    avg_ground_contact_balance: pickNumber(lap, [
+      "average_ground_contact_balance", "avg_ground_contact_balance",
+      "average_gct_balance", "gct_balance", "ground_contact_balance",
+    ]),
+    avg_vertical_oscillation_cm: pickNumber(lap, [
+      "average_vertical_oscillation", "avg_vertical_oscillation", "vertical_oscillation",
+    ]),
     source,
   };
 }
@@ -583,6 +683,11 @@ function insertRecoveryGapsFromIntervals(
           max_hr: null,
           avg_cadence: null,
           avg_power: null,
+          avg_vertical_ratio: null,
+          avg_ground_contact_time_ms: null,
+          avg_stride_length_m: null,
+          avg_ground_contact_balance: null,
+          avg_vertical_oscillation_cm: null,
           source: "recovery_gap",
         });
       }
@@ -663,6 +768,11 @@ function aggregatePhase(laps: NormalizedLap[]) {
     })(),
     avg_cadence: wAvg((l) => l.avg_cadence),
     avg_power: wAvg((l) => l.avg_power),
+    avg_vertical_ratio: wAvg((l) => l.avg_vertical_ratio),
+    avg_ground_contact_time_ms: wAvg((l) => l.avg_ground_contact_time_ms),
+    avg_stride_length_m: wAvg((l) => l.avg_stride_length_m),
+    avg_ground_contact_balance: wAvg((l) => l.avg_ground_contact_balance),
+    avg_vertical_oscillation_cm: wAvg((l) => l.avg_vertical_oscillation_cm),
   };
 }
 
@@ -731,6 +841,11 @@ export function analyzeIntervalSession(
       max_hr: agg.max_hr && agg.max_hr > 0 ? agg.max_hr : null,
       avg_cadence: agg.avg_cadence,
       avg_power: agg.avg_power,
+      avg_vertical_ratio: agg.avg_vertical_ratio,
+      avg_ground_contact_time_ms: agg.avg_ground_contact_time_ms,
+      avg_stride_length_m: agg.avg_stride_length_m,
+      avg_ground_contact_balance: agg.avg_ground_contact_balance,
+      avg_vertical_oscillation_cm: agg.avg_vertical_oscillation_cm,
       hr_drop_from_prior_work_bpm: null,
     });
   }
@@ -755,6 +870,11 @@ export function analyzeIntervalSession(
       max_hr: p.max_hr,
       avg_cadence: p.avg_cadence,
       avg_power: p.avg_power,
+      avg_vertical_ratio: p.avg_vertical_ratio,
+      avg_ground_contact_time_ms: p.avg_ground_contact_time_ms,
+      avg_stride_length_m: p.avg_stride_length_m,
+      avg_ground_contact_balance: p.avg_ground_contact_balance,
+      avg_vertical_oscillation_cm: p.avg_vertical_oscillation_cm,
     }));
 
   const recoveries: RecoverySummary[] = phases
@@ -797,10 +917,16 @@ function computeTrends(work_intervals: WorkIntervalSummary[]): SessionTrends {
       hr_drift_bpm_per_rep: null,
       cadence_drift_per_rep: null,
       power_drift_w_per_rep: null,
+      vertical_ratio_drift_pct_per_rep: null,
+      gct_drift_ms_per_rep: null,
+      stride_length_drift_m_per_rep: null,
       pace_degraded: null,
       hr_climbed_at_similar_pace: null,
       cadence_dropped: null,
       power_held: null,
+      vertical_ratio_increased: null,
+      gct_increased: null,
+      stride_length_shortened: null,
       notes: n === 0 ? ["No distinct work intervals detected from lap pace pattern."] : ["Only one work block; trend compares need ≥2 reps."],
     };
   }
@@ -809,22 +935,34 @@ function computeTrends(work_intervals: WorkIntervalSummary[]): SessionTrends {
   const hrs = work_intervals.map((w) => w.avg_hr).filter((x): x is number => x != null);
   const cads = work_intervals.map((w) => w.avg_cadence).filter((x): x is number => x != null);
   const pws = work_intervals.map((w) => w.avg_power).filter((x): x is number => x != null);
+  const vrs = work_intervals.map((w) => w.avg_vertical_ratio).filter((x): x is number => x != null && x > 0);
+  const gcts = work_intervals.map((w) => w.avg_ground_contact_time_ms).filter((x): x is number => x != null && x > 0);
+  const sls = work_intervals.map((w) => w.avg_stride_length_m).filter((x): x is number => x != null && x > 0);
 
   const paceSlope = paces.length >= 2 ? linearSlope(paces) : null;
   const hrSlope = hrs.length >= 2 ? linearSlope(hrs) : null;
   const cadSlope = cads.length >= 2 ? linearSlope(cads) : null;
   const powSlope = pws.length >= 2 ? linearSlope(pws) : null;
+  const vrSlope = vrs.length >= 2 ? linearSlope(vrs) : null;
+  const gctSlope = gcts.length >= 2 ? linearSlope(gcts) : null;
+  const slSlope = sls.length >= 2 ? linearSlope(sls) : null;
 
   const pace_degraded = paceSlope != null ? paceSlope > 0.35 : null;
   const hr_climbed_at_similar_pace =
     hrSlope != null && paceSlope != null ? hrSlope > 0.4 && Math.abs(paceSlope) < 0.6 : null;
   const cadence_dropped = cadSlope != null ? cadSlope < -0.25 : null;
   const power_held = powSlope != null ? Math.abs(powSlope) < 1.5 : pws.length >= 2 ? true : null;
+  const vertical_ratio_increased = vrSlope != null ? vrSlope > 0.05 : null;
+  const gct_increased = gctSlope != null ? gctSlope > 1.0 : null;
+  const stride_length_shortened = slSlope != null ? slSlope < -0.005 : null;
 
   if (pace_degraded) notes.push("Pace tended to slow across hard intervals (positive pace drift in sec/km).");
   if (hr_climbed_at_similar_pace) notes.push("HR crept up with relatively stable pacing — common fatigue or dehydration signal.");
   if (cadence_dropped) notes.push("Cadence drifted down across reps — check leg stiffness / neuromuscular fatigue.");
   if (power_held === true && pws.length >= 2) notes.push("Power stayed relatively steady across work bouts.");
+  if (vertical_ratio_increased) notes.push("Vertical ratio drifted upward across reps — energy leaking into vertical bounce, classic form fatigue signal.");
+  if (gct_increased) notes.push("Ground contact time lengthened across reps — neuromuscular fatigue reducing leg spring stiffness.");
+  if (stride_length_shortened) notes.push("Stride length shortened across reps — form degradation or protective fatigue response under load.");
 
   return {
     work_interval_count: n,
@@ -832,10 +970,16 @@ function computeTrends(work_intervals: WorkIntervalSummary[]): SessionTrends {
     hr_drift_bpm_per_rep: hrSlope,
     cadence_drift_per_rep: cadSlope,
     power_drift_w_per_rep: powSlope,
+    vertical_ratio_drift_pct_per_rep: vrSlope,
+    gct_drift_ms_per_rep: gctSlope,
+    stride_length_drift_m_per_rep: slSlope,
     pace_degraded,
     hr_climbed_at_similar_pace,
     cadence_dropped,
     power_held,
+    vertical_ratio_increased,
+    gct_increased,
+    stride_length_shortened,
     notes,
   };
 }

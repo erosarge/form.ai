@@ -61,6 +61,22 @@ function defaultRunActivityId(activities: unknown): string | null {
   return pickString(pick ?? {}, ["id"]);
 }
 
+const RUNNING_DYNAMICS_CONTEXT = [
+  "RUNNING_DYNAMICS_INTERPRETATION (apply when these fields appear in laps, work_intervals, or single_effort_summary):",
+  "- avg_vertical_ratio (%): energy efficiency — well-trained runners typically 6–8%; above 9% = energy wasted bouncing vertically.",
+  "  Rising across laps/reps is a fatigue signal (form breakdown). Stable = good form discipline.",
+  "- avg_ground_contact_time_ms (ms): lower = better elastic energy return; trained runners ~190–230ms.",
+  "  Lengthening GCT across a session = neuromuscular fatigue / leg stiffness accumulating.",
+  "- avg_stride_length_m (m): shortening under fatigue is a protective response; lengthening as pace increases is healthy mechanics.",
+  "- avg_ground_contact_balance (%): 50% = perfect left/right symmetry; deviations >1–2% worth mentioning for injury risk.",
+  "- avg_vertical_oscillation_cm (cm): lower = less energy wasted; reference alongside vertical ratio.",
+  "Always describe dynamics trends in coach language, not raw numbers alone.",
+  "Good examples: 'Your vertical ratio held at 7.1% across all six reps — excellent form consistency under fatigue'",
+  "  or 'Ground contact time crept from 218ms to 247ms across the session — a clear sign of neuromuscular tiredness accumulating'",
+  "  or 'Stride length shortened by ~8cm between rep 1 and rep 5, typical of muscle fatigue limiting push-off'.",
+  "Only mention dynamics if the data is present (non-null). Skip gracefully if all null.",
+].join("\n");
+
 function buildSystemPrompt(parts: {
   athleteProfile: unknown;
   recent: unknown;
@@ -81,6 +97,8 @@ function buildSystemPrompt(parts: {
     "Keep tone practical and concise; use markdown headings.",
     "",
     ATHLETE_GOALS_CONTEXT,
+    "",
+    RUNNING_DYNAMICS_CONTEXT,
     "",
     parts.sessionBlock ? `${parts.sessionBlock}\n` : "",
     "ATHLETE_PROFILE_JSON:",
