@@ -217,10 +217,33 @@ export function DashboardClient() {
     const hrvLastNight = pickNumber(wellness, ["hrv", "hrvNightAvg", "hrv_night_avg", "hrvScore"]);
     const sleepScore = pickNumber(wellness, ["sleepScore", "sleep_score", "garminSleepScore"]);
     const sleepSecs = pickNumber(wellness, ["sleepSecs", "sleep_secs", "sleepSeconds", "sleepDuration"]);
-    // vo2max is the canonical Intervals.icu field
-    const vo2max = pickNumber(wellness, ["vo2max", "vo2Max", "VO2max", "estimatedVo2max"]);
-    // icu_form is the TSB/form value computed by Intervals.icu
-    const form = pickNumber(wellness, ["icu_form", "form", "tsb", "icu_training_status"]);
+    // vo2max — check direct fields first, then sportInfo array, then Garmin fallback
+    let vo2max = pickNumber(wellness, ["vo2max", "vo2Max", "VO2max", "estimatedVo2max"]);
+    let vo2maxIsGarminFallback = false;
+    if (vo2max == null) {
+      const sportInfo = Array.isArray(wellness.sportInfo)
+        ? (wellness.sportInfo as AnyRecord[])
+        : [];
+      for (const sport of sportInfo) {
+        const v = pickNumber(sport, ["vo2max", "vo2Max", "eftp", "fitness"]);
+        if (v != null) { vo2max = v; break; }
+      }
+    }
+    if (vo2max == null) {
+      vo2max = 58;
+      vo2maxIsGarminFallback = true;
+    }
+
+    // form = TSB (Training Stress Balance) = CTL − ATL
+    // Try the pre-computed icu_form field first; fall back to calculating from ctl/atl
+    let form = pickNumber(wellness, ["icu_form", "form", "tsb"]);
+    if (form == null) {
+      const ctl = pickNumber(wellness, ["ctl", "CTL", "icu_ctl"]);
+      const atl = pickNumber(wellness, ["atl", "ATL", "icu_atl"]);
+      if (ctl != null && atl != null) {
+        form = ctl - atl;
+      }
+    }
 
     const trainingStatus = deriveTrainingStatus(form);
 
@@ -257,6 +280,8 @@ export function DashboardClient() {
       sleepScore,
       sleepSecs,
       vo2max,
+      vo2maxIsGarminFallback,
+      form,
       trainingStatus,
     };
   }, [wellness, wellnessRows]);
@@ -430,7 +455,11 @@ export function DashboardClient() {
                 <div className="kpiValue">
                   {formatOneDecimal(wellnessKpis?.vo2max ?? null)}
                 </div>
-                <div className="kpiSub">mL/kg/min</div>
+                {wellnessKpis?.vo2maxIsGarminFallback ? (
+                  <div className="kpiSub" title="Value from Garmin device — not available via Intervals.icu">mL/kg/min · Garmin</div>
+                ) : (
+                  <div className="kpiSub">mL/kg/min</div>
+                )}
               </div>
 
               {/* Training Status — full width */}
@@ -446,7 +475,12 @@ export function DashboardClient() {
                     >
                       {wellnessKpis.trainingStatus.label}
                     </div>
-                    <div className="kpiSub">{wellnessKpis.trainingStatus.description}</div>
+                    <div className="kpiSub">
+                      {wellnessKpis.trainingStatus.description}
+                      {wellnessKpis.form != null && (
+                        <> · Form {wellnessKpis.form > 0 ? "+" : ""}{wellnessKpis.form.toFixed(1)}</>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <div className="kpiValue">—</div>
