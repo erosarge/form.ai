@@ -79,13 +79,15 @@ export function DashboardClient() {
     {
       role: "assistant",
       content:
-        "Ask me about your recent training, recovery, and what to focus on next.",
+        "Ask about a specific workout (intervals, laps, pace, fatigue). I can pull lap data from Intervals.icu and break down structure. Optional: pick an activity below and enable lap analysis, or just ask in natural language.",
       ts: Date.now(),
     },
   ]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [focusActivityId, setFocusActivityId] = useState("");
+  const [includeLapAnalysis, setIncludeLapAnalysis] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -173,6 +175,8 @@ export function DashboardClient() {
         body: JSON.stringify({
           message: text,
           history: historyForApi,
+          focusActivityId: focusActivityId || undefined,
+          deepSessionAnalysis: includeLapAnalysis || undefined,
         }),
       });
 
@@ -311,12 +315,49 @@ export function DashboardClient() {
               </div>
             </div>
 
+            <label className="stack" style={{ gap: 6 }}>
+              <span className="muted">
+                Focus activity (optional — used when lap analysis runs: checkbox below or interval/lap keywords in your message)
+              </span>
+              <select
+                className="input"
+                value={focusActivityId}
+                onChange={(e) => setFocusActivityId(e.target.value)}
+                disabled={chatBusy || activities.length === 0}
+              >
+                <option value="">Auto (from your message or most recent run)</option>
+                {activities.slice(0, 20).map((a, idx) => {
+                  const id = pickString(a, ["id"]) ?? String(idx);
+                  const name = pickString(a, ["name", "title"]) ?? "Activity";
+                  const date = pickString(a, ["start_date_local", "start_date"]) ?? "";
+                  return (
+                    <option key={id} value={id}>
+                      {date ? `${date} — ${name}` : name}
+                    </option>
+                  );
+                })}
+              </select>
+            </label>
+
+            <label className="row" style={{ gap: 10, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={includeLapAnalysis}
+                onChange={(e) => setIncludeLapAnalysis(e.target.checked)}
+                disabled={chatBusy}
+              />
+              <span className="muted" style={{ fontSize: 14 }}>
+                Always include full lap / interval analysis (uses Intervals.icu activity + streams).
+                Also runs automatically if your message mentions intervals, laps, or similar.
+              </span>
+            </label>
+
             <div className="chatInputRow">
               <textarea
                 className="textarea"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask about your recent training, recovery, or next workout…"
+                placeholder="e.g. How was the structure of my last interval session?"
                 disabled={chatBusy}
               />
               <button className="button" onClick={sendChatMessage} disabled={chatBusy}>
@@ -326,8 +367,8 @@ export function DashboardClient() {
 
             {chatError ? <div className="error">{chatError}</div> : null}
             <div className="muted">
-              Chat uses Claude server-side with your recent Intervals.icu activities, wellness,
-              and athlete profile included as context.
+              Coach uses Claude with your profile, recent list, and (when triggered) per-lap data +
+              detected phases (warm-up, reps, recovery, cool-down) and trends.
             </div>
           </div>
         </div>

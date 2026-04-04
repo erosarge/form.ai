@@ -43,6 +43,58 @@ export async function fetchIntervalsAthleteProfile(): Promise<unknown> {
   return res.json();
 }
 
+export async function fetchIntervalsActivityDetail(
+  activityId: string | number,
+  { intervals = true }: { intervals?: boolean } = {},
+): Promise<unknown> {
+  const { apiKey } = getIntervalsEnv();
+
+  const headers = {
+    Authorization: basicAuthHeader(apiKey),
+    Accept: "application/json",
+  } as const;
+
+  const url = new URL(
+    `https://intervals.icu/api/v1/activity/${encodeURIComponent(String(activityId))}`,
+  );
+  if (intervals) url.searchParams.set("intervals", "true");
+
+  const res = await fetch(url, { headers, cache: "no-store" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Intervals activity fetch failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
+export async function fetchIntervalsActivityStreams(
+  activityId: string | number,
+  types = "time,distance,watts,heart_rate,cadence,velocity_smooth",
+): Promise<unknown> {
+  const { apiKey } = getIntervalsEnv();
+
+  const headers = {
+    Authorization: basicAuthHeader(apiKey),
+    Accept: "application/json",
+  } as const;
+
+  const url = new URL(
+    `https://intervals.icu/api/v1/activity/${encodeURIComponent(String(activityId))}/streams.json`,
+  );
+  if (types) url.searchParams.set("types", types);
+
+  const res = await fetch(url, { headers, cache: "no-store" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Intervals streams fetch failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
 export async function fetchIntervalsRecent({
   days = 14,
   limit = 20,

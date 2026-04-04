@@ -1,14 +1,29 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server-client";
 import {
+  fetchIntervalsActivityDetail,
+  fetchIntervalsActivityStreams,
   fetchIntervalsAthleteProfile,
   fetchIntervalsRecent,
 } from "@/lib/intervals/intervals-client";
+import { buildSessionAnalysisFromActivity } from "@/lib/intervals/session-analysis";
+import {
+  resolveActivityIdForChat,
+  sortActivitiesNewestFirst,
+  wantsSessionDeepDive,
+} from "@/lib/intervals/resolve-activity";
 
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
 };
+
+const ATHLETE_GOALS_CONTEXT = [
+  "ATHLETE_LEVEL_AND_GOALS (use for pacing expectations and recommendations):",
+  "- Experienced runner: marathon PR under 3 hours.",
+  "- Current targets: sub-80 minute half marathon, sub-17 minute 5 km.",
+  "- When coaching, calibrate interval quality and recovery against these goals; be specific about paces/efforts where data supports it.",
+].join("\n");
 
 function getAnthropicEnv() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -27,23 +42,52 @@ function clampInt(n: unknown, { min, max, fallback }: { min: number; max: number
   return Math.max(min, Math.min(max, Math.floor(num)));
 }
 
-function buildSystemPrompt({
-  athleteProfile,
-  recent,
-}: {
+function pickString(obj: Record<string, unknown>, keys: string[]) {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === "string" && v.trim()) return v;
+  }
+  return null;
+}
+
+function defaultRunActivityId(activities: unknown): string | null {
+  const sorted = sortActivitiesNewestFirst(activities);
+  if (!sorted.length) return null;
+  const run = sorted.find((a) => {
+    const t = (pickString(a, ["type"]) || "").toLowerCase();
+    return t === "run" || t.includes("run");
+  });
+  const pick = run ?? sorted[0];
+  return pickString(pick ?? {}, ["id"]);
+}
+
+function buildSystemPrompt(parts: {
   athleteProfile: unknown;
   recent: unknown;
+  sessionBlock?: string;
 }) {
   return [
-    "You are a helpful endurance training assistant.",
-    "Use the user's Intervals.icu data as context. Be concrete and reference the provided data when helpful.",
-    "If you are missing key details, ask targeted questions rather than guessing.",
+    "You are an expert running coach (AI) helping an athlete interpret a single session and training trends.",
+    "When SESSION_INTERVAL_ANALYSIS_JSON is present:",
+    "- It includes `session_classification` (session_type, rationale, metrics, ai_instructions) and optional `single_effort_summary`.",
+    "- ALWAYS open your answer by stating the classified session type (INTERVAL_SESSION, STEADY_RUN, PROGRESSIVE_RUN, TEMPO_THRESHOLD, or MIXED_SESSION) and briefly WHY, using session_classification.rationale and metrics.",
+    "- Then follow `session_classification.ai_instructions` exactly for how to analyse (e.g. rep-by-rep only for INTERVAL_SESSION; single block summary only for STEADY_RUN; do not lap-by-lap for steady).",
+    "- For INTERVAL_SESSION: use work_intervals, recoveries, and trends for rep-by-rep and recovery HR drops.",
+    "- For STEADY_RUN: use single_effort_summary and session totals — do NOT analyse lap-by-lap.",
+    "- For PROGRESSIVE_RUN: emphasise pace trend vs lap/time order and HR response to increasing pace.",
+    "- For TEMPO_THRESHOLD: emphasise sustained block, HR stability vs pace, threshold/lactate proxy signals, pacing discipline.",
+    "- For MIXED_SESSION: name each phase (warm-up, main set, cool-down, etc.) and apply the right lens per phase.",
+    "- Always end with session quality, fatigue signals, and ONE specific next-step recommendation tied to their goals.",
+    "Keep tone practical and concise; use markdown headings.",
     "",
+    ATHLETE_GOALS_CONTEXT,
+    "",
+    parts.sessionBlock ? `${parts.sessionBlock}\n` : "",
     "ATHLETE_PROFILE_JSON:",
-    JSON.stringify(athleteProfile),
+    JSON.stringify(parts.athleteProfile),
     "",
-    "RECENT_INTERVALS_DATA_JSON:",
-    JSON.stringify(recent),
+    "RECENT_INTERVALS_DATA_JSON (summary list — session detail may be in SESSION_INTERVAL_ANALYSIS_JSON):",
+    JSON.stringify(parts.recent),
   ].join("\n");
 }
 
@@ -61,7 +105,6 @@ async function* anthropicTextStream(response: Response): AsyncGenerator<string> 
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
 
-    // Anthropic streams as SSE. We parse by event blocks separated by blank lines.
     while (true) {
       const sep = buffer.indexOf("\n\n");
       if (sep === -1) break;
@@ -84,7 +127,6 @@ async function* anthropicTextStream(response: Response): AsyncGenerator<string> 
         continue;
       }
 
-      // We care about text deltas.
       if (payload?.type === "content_block_delta") {
         const text = payload?.delta?.text;
         if (typeof text === "string" && text.length) {
@@ -95,8 +137,23 @@ async function* anthropicTextStream(response: Response): AsyncGenerator<string> 
   }
 }
 
+async function loadStreamsWithFallback(activityId: string) {
+  const tryTypes = [
+    "time,distance,watts,heart_rate,cadence,velocity_smooth",
+    "time,distance,heart_rate,cadence",
+    "",
+  ];
+  for (const types of tryTypes) {
+    try {
+      return await fetchIntervalsActivityStreams(activityId, types);
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
 export async function POST(request: Request) {
-  // Require an authenticated Supabase user since this endpoint uses private env-backed data.
   const supabase = await getSupabaseServerClient();
   const {
     data: { user },
@@ -121,7 +178,16 @@ export async function POST(request: Request) {
   }
 
   const maxHistory = clampInt(body?.maxHistory, { min: 0, max: 20, fallback: 8 });
-  const maxTokens = clampInt(body?.maxTokens, { min: 256, max: 4096, fallback: 1024 });
+  const focusActivityId =
+    typeof body?.focusActivityId === "string" ? body.focusActivityId.trim() : "";
+  const deepSessionAnalysis =
+    body?.deepSessionAnalysis === true || wantsSessionDeepDive(message);
+
+  const maxTokens = clampInt(body?.maxTokens, {
+    min: 256,
+    max: 8192,
+    fallback: deepSessionAnalysis ? 4096 : 1024,
+  });
 
   const { apiKey, model } = getAnthropicEnv();
 
@@ -130,7 +196,69 @@ export async function POST(request: Request) {
     fetchIntervalsRecent({ days: 14, limit: 20 }),
   ]);
 
-  const system = buildSystemPrompt({ athleteProfile, recent });
+  let sessionBlock = "";
+
+  if (deepSessionAnalysis) {
+    let activityId = resolveActivityIdForChat({
+      message,
+      activities: recent.activities,
+      explicitActivityId: typeof body?.activityId === "string" ? body.activityId : undefined,
+      selectedActivityId: focusActivityId || undefined,
+    });
+
+    if (!activityId) {
+      activityId = defaultRunActivityId(recent.activities);
+    }
+
+    if (activityId) {
+      try {
+        const [activityDetail, streams] = await Promise.all([
+          fetchIntervalsActivityDetail(activityId, { intervals: true }),
+          loadStreamsWithFallback(activityId),
+        ]);
+
+        const act = activityDetail as Record<string, unknown>;
+        const summary = {
+          id: activityId,
+          name: pickString(act, ["name", "title"]),
+          type: pickString(act, ["type"]),
+          start: pickString(act, ["start_date_local", "start_date", "date"]),
+          distance_m: act.distance,
+          moving_time: act.moving_time,
+        };
+
+        const analysis = buildSessionAnalysisFromActivity(activityDetail, streams);
+
+        sessionBlock = [
+          "SESSION_TARGET_ACTIVITY_SUMMARY_JSON:",
+          JSON.stringify(summary),
+          "",
+          "RAW_LAP_ROWS_JSON (distance m, duration s, pace s/km, HR, cadence, power per lap where available):",
+          JSON.stringify("error" in analysis ? [] : analysis.laps),
+          "",
+          "SESSION_INTERVAL_ANALYSIS_JSON (phases, work/recovery summaries, trends — primary source for your breakdown):",
+          JSON.stringify(analysis),
+        ].join("\n");
+      } catch (e) {
+        sessionBlock = [
+          "SESSION_INTERVAL_ANALYSIS_JSON:",
+          JSON.stringify({
+            error: e instanceof Error ? e.message : "Failed to load activity or streams",
+            activityId,
+          }),
+        ].join("\n");
+      }
+    } else {
+      sessionBlock =
+        "SESSION_INTERVAL_ANALYSIS_JSON: {\"error\":\"No activity id could be resolved for lap analysis.\"}";
+    }
+  }
+
+  const system = buildSystemPrompt({
+    athleteProfile,
+    recent,
+    sessionBlock: sessionBlock || undefined,
+  });
 
   const anthropicMessages = [
     ...history.slice(-maxHistory).map((m) => ({
@@ -190,4 +318,3 @@ export async function POST(request: Request) {
     },
   });
 }
-
