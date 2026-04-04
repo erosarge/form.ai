@@ -73,6 +73,32 @@ function formatInt(n: number | null) {
   return String(Math.round(n));
 }
 
+/** Format an ISO date string as "3 Apr 2026" */
+function formatActivityDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr.substring(0, 10) + "T12:00:00Z");
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+type ActivityTypeCls = "run" | "ride" | "strength" | "other";
+
+function resolveActivityType(typeStr: string | null): { label: string; cls: ActivityTypeCls } {
+  if (!typeStr) return { label: "—", cls: "other" };
+  const t = typeStr.toLowerCase();
+  if (t.includes("run") || t === "running") return { label: "Run", cls: "run" };
+  if (t.includes("ride") || t.includes("cycl") || t.includes("bike") || t === "virtualride")
+    return { label: "Ride", cls: "ride" };
+  if (t.includes("strength") || t.includes("weight") || t.includes("gym") || t.includes("workout"))
+    return { label: "Strength", cls: "strength" };
+  return { label: typeStr, cls: "other" };
+}
+
 type TrainingStatusKey = "fresh" | "optimal" | "productive" | "overreaching";
 type TrainingStatus = {
   label: string;
@@ -121,16 +147,16 @@ function deriveHrv7DayStatus(
 }
 
 const TRAINING_STATUS_COLORS: Record<TrainingStatusKey, string> = {
-  fresh: "#059669",
-  optimal: "#2563eb",
-  productive: "#d97706",
-  overreaching: "#dc2626",
+  fresh: "#4ade80",
+  optimal: "#60a5fa",
+  productive: "#fbbf24",
+  overreaching: "#f87171",
 };
 
 const HRV_STATUS_COLORS: Record<HrvStatusKey, string> = {
-  balanced: "#059669",
-  elevated: "#d97706",
-  suppressed: "#dc2626",
+  balanced: "#4ade80",
+  elevated: "#fbbf24",
+  suppressed: "#f87171",
 };
 
 const HRV_STATUS_LABELS: Record<HrvStatusKey, string> = {
@@ -191,18 +217,16 @@ export function DashboardClient() {
 
   const activities = useMemo(() => asArray(data?.activities), [data]);
   const wellnessRows = useMemo(() => asArray(data?.wellness), [data]);
-  // Pick the most recent entry that has actual data (non-null restingHR).
-  // Intervals.icu includes projected future dates with all-null fields at the end of the array.
+
   const wellness = useMemo(() => {
     if (wellnessRows.length === 0) return null;
     const sorted = [...wellnessRows].sort((a, b) => {
       const da = pickString(a, ["id", "date"]) ?? "";
       const db = pickString(b, ["id", "date"]) ?? "";
-      return db.localeCompare(da); // descending
+      return db.localeCompare(da);
     });
-    // Skip projected future entries by finding the first with a real restingHR value
     const withData = sorted.find(
-      (r) => pickNumber(r, ["restingHR", "restingHr", "resting_hr", "rhr"]) !== null
+      (r) => pickNumber(r, ["restingHR", "restingHr", "resting_hr", "rhr"]) !== null,
     );
     return withData ?? sorted[0] ?? null;
   }, [wellnessRows]);
@@ -211,13 +235,11 @@ export function DashboardClient() {
     if (!wellness) return null;
 
     const date = pickString(wellness, ["id", "date", "start_date_local"]);
-    // Intervals.icu field names (camelCase is canonical; snake_case variants included for safety)
     const restingHr = pickNumber(wellness, ["restingHR", "restingHr", "resting_hr", "rhr"]);
-    // hrv = Intervals.icu field for last-night HRV; hrvNightAvg = overnight avg from Garmin/Polar
     const hrvLastNight = pickNumber(wellness, ["hrv", "hrvNightAvg", "hrv_night_avg", "hrvScore"]);
     const sleepScore = pickNumber(wellness, ["sleepScore", "sleep_score", "garminSleepScore"]);
     const sleepSecs = pickNumber(wellness, ["sleepSecs", "sleep_secs", "sleepSeconds", "sleepDuration"]);
-    // vo2max — check direct fields first, then sportInfo array, then Garmin fallback
+
     let vo2max = pickNumber(wellness, ["vo2max", "vo2Max", "VO2max", "estimatedVo2max"]);
     let vo2maxIsGarminFallback = false;
     if (vo2max == null) {
@@ -226,7 +248,10 @@ export function DashboardClient() {
         : [];
       for (const sport of sportInfo) {
         const v = pickNumber(sport, ["vo2max", "vo2Max", "eftp", "fitness"]);
-        if (v != null) { vo2max = v; break; }
+        if (v != null) {
+          vo2max = v;
+          break;
+        }
       }
     }
     if (vo2max == null) {
@@ -234,8 +259,6 @@ export function DashboardClient() {
       vo2maxIsGarminFallback = true;
     }
 
-    // form = TSB (Training Stress Balance) = CTL − ATL
-    // Try the pre-computed icu_form field first; fall back to calculating from ctl/atl
     let form = pickNumber(wellness, ["icu_form", "form", "tsb"]);
     if (form == null) {
       const ctl = pickNumber(wellness, ["ctl", "CTL", "icu_ctl"]);
@@ -249,9 +272,8 @@ export function DashboardClient() {
 
     const HRV_KEYS = ["hrv", "hrvNightAvg", "hrv_night_avg", "hrvScore"];
 
-    // HRV 7-day average from most-recent 7 rows with a valid HRV value
     const recentHrvValues = wellnessRows
-      .slice(-7) // last 7 rows (rows are oldest-first)
+      .slice(-7)
       .map((r) => pickNumber(r, HRV_KEYS))
       .filter((v): v is number => v !== null);
 
@@ -260,7 +282,6 @@ export function DashboardClient() {
         ? recentHrvValues.reduce((a, b) => a + b, 0) / recentHrvValues.length
         : null;
 
-    // Baseline from full window for deviation comparison
     const allHrvValues = wellnessRows
       .map((r) => pickNumber(r, HRV_KEYS))
       .filter((v): v is number => v !== null);
@@ -357,18 +378,6 @@ export function DashboardClient() {
 
   return (
     <section className="stack">
-      <div className="row wrap space-between">
-        <div className="pill">
-          <span className="muted">Range</span>
-          <span>
-            {data?.meta?.oldest ?? "—"} → {data?.meta?.newest ?? "—"}
-          </span>
-        </div>
-        <button className="button" onClick={() => window.location.reload()}>
-          Refresh
-        </button>
-      </div>
-
       {loading ? (
         <div className="card stack">
           <div style={{ fontWeight: 650 }}>Loading…</div>
@@ -385,11 +394,13 @@ export function DashboardClient() {
         </div>
       ) : (
         <>
-          {/* Wellness */}
+          {/* ── Wellness ─────────────────────────────────────── */}
           <div className="card stack">
             <div className="row space-between">
-              <h2 style={{ margin: 0, fontSize: 18 }}>Wellness</h2>
-              <div className="muted" style={{ fontSize: 12 }}>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>
+                Wellness
+              </h2>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>
                 {wellnessKpis?.date ?? "—"}
               </div>
             </div>
@@ -398,9 +409,7 @@ export function DashboardClient() {
               {/* Resting HR */}
               <div className="kpi">
                 <div className="kpiLabel">Resting HR</div>
-                <div className="kpiValue">
-                  {formatInt(wellnessKpis?.restingHr ?? null)}
-                </div>
+                <div className="kpiValue">{formatInt(wellnessKpis?.restingHr ?? null)}</div>
                 <div className="kpiSub">bpm</div>
               </div>
 
@@ -434,9 +443,7 @@ export function DashboardClient() {
               {/* Sleep Score */}
               <div className="kpi">
                 <div className="kpiLabel">Sleep Score</div>
-                <div className="kpiValue">
-                  {formatInt(wellnessKpis?.sleepScore ?? null)}
-                </div>
+                <div className="kpiValue">{formatInt(wellnessKpis?.sleepScore ?? null)}</div>
                 <div className="kpiSub">/ 100</div>
               </div>
 
@@ -456,14 +463,21 @@ export function DashboardClient() {
                   {formatOneDecimal(wellnessKpis?.vo2max ?? null)}
                 </div>
                 {wellnessKpis?.vo2maxIsGarminFallback ? (
-                  <div className="kpiSub" title="Value from Garmin device — not available via Intervals.icu">mL/kg/min · Garmin</div>
+                  <div
+                    className="kpiSub"
+                    title="Value from Garmin device — not available via Intervals.icu"
+                  >
+                    mL/kg/min · Garmin
+                  </div>
                 ) : (
                   <div className="kpiSub">mL/kg/min</div>
                 )}
               </div>
 
               {/* Training Status — full width */}
-              <div className="kpi kpiTraining">
+              <div
+                className={`kpi kpiTraining${wellnessKpis?.trainingStatus?.key === "optimal" ? " statusOptimal" : ""}`}
+              >
                 <div className="kpiLabel">Training Status</div>
                 {wellnessKpis?.trainingStatus ? (
                   <>
@@ -478,7 +492,11 @@ export function DashboardClient() {
                     <div className="kpiSub">
                       {wellnessKpis.trainingStatus.description}
                       {wellnessKpis.form != null && (
-                        <> · Form {wellnessKpis.form > 0 ? "+" : ""}{wellnessKpis.form.toFixed(1)}</>
+                        <span style={{ color: "var(--muted)", marginLeft: 6 }}>
+                          Form{" "}
+                          {wellnessKpis.form > 0 ? "+" : ""}
+                          {wellnessKpis.form.toFixed(1)}
+                        </span>
                       )}
                     </div>
                   </>
@@ -489,11 +507,23 @@ export function DashboardClient() {
             </div>
           </div>
 
-          {/* Chat */}
+          {/* ── AI Coach Chat ─────────────────────────────────── */}
           <div className="card chatWrap">
             <div className="row space-between">
-              <h2 style={{ margin: 0, fontSize: 18 }}>Chat</h2>
-              <span className="pill">{chatBusy ? "Thinking…" : "Ready"}</span>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>
+                AI Coach
+              </h2>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  color: chatBusy ? "var(--accent)" : "var(--muted)",
+                }}
+              >
+                {chatBusy ? "Thinking…" : "Ready"}
+              </span>
             </div>
 
             <div className="chatLog" aria-live="polite">
@@ -512,7 +542,10 @@ export function DashboardClient() {
                 className="textarea"
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="e.g. How was the structure of my last interval session?"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) sendChatMessage();
+                }}
+                placeholder="Ask your coach anything…"
                 disabled={chatBusy}
               />
               <button className="button" onClick={sendChatMessage} disabled={chatBusy}>
@@ -523,9 +556,11 @@ export function DashboardClient() {
             {chatError ? <div className="error">{chatError}</div> : null}
           </div>
 
-          {/* Recent Activities */}
+          {/* ── Recent Activities ─────────────────────────────── */}
           <div className="card stack">
-            <h2 style={{ margin: 0, fontSize: 18 }}>Recent activities</h2>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>
+              Recent Activities
+            </h2>
 
             {activities.length === 0 ? (
               <div className="muted">No activities returned.</div>
@@ -535,6 +570,7 @@ export function DashboardClient() {
                   <thead>
                     <tr>
                       <th>Name</th>
+                      <th>Type</th>
                       <th>Date</th>
                       <th className="num">Distance</th>
                       <th className="num">Duration</th>
@@ -544,8 +580,16 @@ export function DashboardClient() {
                   <tbody>
                     {activities.slice(0, 20).map((a, idx) => {
                       const name = pickString(a, ["name", "title"]) ?? "Untitled";
-                      const date =
-                        pickString(a, ["start_date_local", "start_date", "date"]) ?? "—";
+                      const rawDate =
+                        pickString(a, ["start_date_local", "start_date", "date"]) ?? null;
+                      const typeStr = pickString(a, [
+                        "type",
+                        "sport",
+                        "sport_type",
+                        "workout_type",
+                        "activity_type",
+                      ]);
+                      const { label: typeLabel, cls: typeCls } = resolveActivityType(typeStr);
                       const distance = pickNumber(a, ["distance", "distance_m", "dist"]);
                       const duration = pickNumber(a, [
                         "moving_time",
@@ -563,7 +607,12 @@ export function DashboardClient() {
                       return (
                         <tr key={pickString(a, ["id"]) ?? String(idx)}>
                           <td style={{ minWidth: 160 }}>{name}</td>
-                          <td style={{ minWidth: 110 }}>{date}</td>
+                          <td style={{ minWidth: 90 }}>
+                            <span className={`typePill ${typeCls}`}>{typeLabel}</span>
+                          </td>
+                          <td style={{ minWidth: 120, color: "var(--text-secondary)" }}>
+                            {formatActivityDate(rawDate)}
+                          </td>
                           <td className="num" style={{ minWidth: 90 }}>
                             {formatDistanceMeters(distance)}
                           </td>
