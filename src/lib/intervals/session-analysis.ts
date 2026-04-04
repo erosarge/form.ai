@@ -353,7 +353,7 @@ function classifySessionType(
     !intervalLike &&
     !progressiveLike &&
     longEffort &&
-    medP <= HARD_PACE_SEC_KM + 15 &&
+    medP != null && medP <= HARD_PACE_SEC_KM + 15 &&
     (tightBand || moderateBand);
 
   const mixedLike =
