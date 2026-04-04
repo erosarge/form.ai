@@ -162,7 +162,7 @@ export function DashboardClient() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/intervals/recent?days=14&limit=20", {
+        const res = await fetch("/api/intervals/recent?days=30&limit=30", {
           cache: "no-store",
         });
         if (!res.ok) {
@@ -191,25 +191,41 @@ export function DashboardClient() {
 
   const activities = useMemo(() => asArray(data?.activities), [data]);
   const wellnessRows = useMemo(() => asArray(data?.wellness), [data]);
-  const wellness = useMemo(() => wellnessRows[0] ?? null, [wellnessRows]);
+  // Pick the most recent entry: Intervals.icu returns rows oldest-first, so take the last.
+  // Fall back to a date-sort in case the order ever changes.
+  const wellness = useMemo(() => {
+    if (wellnessRows.length === 0) return null;
+    const sorted = [...wellnessRows].sort((a, b) => {
+      const da = pickString(a, ["id", "date"]) ?? "";
+      const db = pickString(b, ["id", "date"]) ?? "";
+      return db.localeCompare(da); // descending
+    });
+    return sorted[0] ?? null;
+  }, [wellnessRows]);
 
   const wellnessKpis = useMemo(() => {
     if (!wellness) return null;
 
     const date = pickString(wellness, ["id", "date", "start_date_local"]);
-    const restingHr = pickNumber(wellness, ["restingHR", "resting_hr", "restingHr"]);
-    const hrvLastNight = pickNumber(wellness, ["hrv", "hrvNightAvg", "hrv_night_avg"]);
-    const sleepScore = pickNumber(wellness, ["sleepScore", "sleep_score"]);
-    const sleepSecs = pickNumber(wellness, ["sleepSecs", "sleep_secs", "sleepSeconds"]);
-    const vo2max = pickNumber(wellness, ["vo2max", "vo2Max", "VO2max"]);
-    const form = pickNumber(wellness, ["form", "tsb", "icu_form"]);
+    // Intervals.icu field names (camelCase is canonical; snake_case variants included for safety)
+    const restingHr = pickNumber(wellness, ["restingHR", "restingHr", "resting_hr", "rhr"]);
+    // hrvNightAvg = overnight HRV from Garmin/Polar; hrv = morning HRV4Training reading
+    const hrvLastNight = pickNumber(wellness, ["hrvNightAvg", "hrv_night_avg", "hrv", "hrvScore"]);
+    const sleepScore = pickNumber(wellness, ["sleepScore", "sleep_score", "garminSleepScore"]);
+    const sleepSecs = pickNumber(wellness, ["sleepSecs", "sleep_secs", "sleepSeconds", "sleepDuration"]);
+    // vo2max is the canonical Intervals.icu field
+    const vo2max = pickNumber(wellness, ["vo2max", "vo2Max", "VO2max", "estimatedVo2max"]);
+    // icu_form is the TSB/form value computed by Intervals.icu
+    const form = pickNumber(wellness, ["icu_form", "form", "tsb", "icu_training_status"]);
 
     const trainingStatus = deriveTrainingStatus(form);
 
+    const HRV_KEYS = ["hrvNightAvg", "hrv_night_avg", "hrv", "hrvScore"];
+
     // HRV 7-day average from most-recent 7 rows with a valid HRV value
     const recentHrvValues = wellnessRows
-      .slice(0, 7)
-      .map((r) => pickNumber(r, ["hrv", "hrvNightAvg", "hrv_night_avg"]))
+      .slice(-7) // last 7 rows (rows are oldest-first)
+      .map((r) => pickNumber(r, HRV_KEYS))
       .filter((v): v is number => v !== null);
 
     const hrv7DayAvg =
@@ -219,7 +235,7 @@ export function DashboardClient() {
 
     // Baseline from full window for deviation comparison
     const allHrvValues = wellnessRows
-      .map((r) => pickNumber(r, ["hrv", "hrvNightAvg", "hrv_night_avg"]))
+      .map((r) => pickNumber(r, HRV_KEYS))
       .filter((v): v is number => v !== null);
     const baselineHrv =
       allHrvValues.length > 0

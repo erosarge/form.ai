@@ -11,9 +11,23 @@ export async function GET(request: Request) {
 
   try {
     const data = await fetchIntervalsRecent({
-      days: Number.isFinite(days) ? days : 14,
+      days: Number.isFinite(days) ? days : 30,
       limit: Number.isFinite(limit) ? limit : 20,
     });
+
+    // Log raw wellness to help diagnose field-name mismatches
+    const wellnessArr = Array.isArray(data.wellness) ? data.wellness : [];
+    console.log(
+      "[intervals/recent] wellness count:", wellnessArr.length,
+      "| date range:", data.meta.oldest, "→", data.meta.newest,
+    );
+    if (wellnessArr.length > 0) {
+      const newest = wellnessArr[wellnessArr.length - 1];
+      const oldest = wellnessArr[0];
+      console.log("[intervals/recent] wellness[0] (oldest) keys+values:", JSON.stringify(oldest, null, 2));
+      console.log("[intervals/recent] wellness[-1] (newest) keys+values:", JSON.stringify(newest, null, 2));
+    }
+
     return NextResponse.json(data, { status: 200 });
   } catch (err) {
     const message =

@@ -96,7 +96,7 @@ export async function fetchIntervalsActivityStreams(
 }
 
 export async function fetchIntervalsRecent({
-  days = 14,
+  days = 30,
   limit = 20,
 }: {
   days?: number;
@@ -104,11 +104,16 @@ export async function fetchIntervalsRecent({
 }): Promise<IntervalsRecentData> {
   const { apiKey, athleteId } = getIntervalsEnv();
 
-  const newestDate = new Date();
-  const oldestDate = new Date();
+  // Use local-date arithmetic to avoid UTC-offset shifting the "newest" day
+  const nowMs = Date.now();
+  const newestDate = new Date(nowMs);
+  // Add 1 day so the newest param is inclusive of today even when the API treats it as exclusive
+  const newestPlusOne = new Date(nowMs);
+  newestPlusOne.setDate(newestPlusOne.getDate() + 1);
+  const oldestDate = new Date(nowMs);
   oldestDate.setDate(newestDate.getDate() - Math.max(1, days));
 
-  const newest = isoDateOnly(newestDate);
+  const newest = isoDateOnly(newestPlusOne);
   const oldest = isoDateOnly(oldestDate);
 
   const headers = {
