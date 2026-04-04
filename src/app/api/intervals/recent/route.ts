@@ -25,7 +25,8 @@ export async function GET(request: Request) {
       const newest = wellnessArr[wellnessArr.length - 1];
       const oldest = wellnessArr[0];
       console.log("[intervals/recent] wellness[0] (oldest) keys+values:", JSON.stringify(oldest, null, 2));
-      console.log("[intervals/recent] wellness[-1] (newest) keys+values:", JSON.stringify(newest, null, 2));
+      console.log("[intervals/recent] wellness[-1] (newest) raw JSON:", JSON.stringify(newest, null, 2));
+      console.log("[intervals/recent] wellness[-1] (newest) Object.keys():", Object.keys(newest as object));
     }
 
     return NextResponse.json(data, { status: 200 });
