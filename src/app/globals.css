@@ -109,13 +109,45 @@ a {
 .kpiLabel {
   color: #6b7280;
   font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .kpiValue {
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 650;
   margin-top: 4px;
   font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.kpiSub {
+  color: #9ca3af;
+  font-size: 11px;
+  margin-top: 3px;
+}
+
+.kpiStatus {
+  font-size: 11px;
+  font-weight: 600;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.kpiTraining {
+  grid-column: 1 / -1;
+  background: #f9fafb;
+}
+
+.kpiTraining .kpiValue {
+  font-size: 22px;
+}
+
+.kpiTraining .kpiSub {
+  font-size: 13px;
+  color: #6b7280;
+  margin-top: 4px;
 }
 
 .pill {
