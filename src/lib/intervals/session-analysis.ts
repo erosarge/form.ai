@@ -361,7 +361,7 @@ function classifySessionType(
     hasWarmupPhase &&
     hasCooldownPhase &&
     phaseCount >= 3 &&
-    (workCount >= 1 || medP <= HARD_PACE_SEC_KM + 25);
+    (workCount >= 1 || (medP != null && medP <= HARD_PACE_SEC_KM + 25));
 
   let session_type: SessionType;
   let rationale: string;
