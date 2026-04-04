@@ -191,8 +191,8 @@ export function DashboardClient() {
 
   const activities = useMemo(() => asArray(data?.activities), [data]);
   const wellnessRows = useMemo(() => asArray(data?.wellness), [data]);
-  // Pick the most recent entry: Intervals.icu returns rows oldest-first, so take the last.
-  // Fall back to a date-sort in case the order ever changes.
+  // Pick the most recent entry that has actual data (non-null restingHR).
+  // Intervals.icu includes projected future dates with all-null fields at the end of the array.
   const wellness = useMemo(() => {
     if (wellnessRows.length === 0) return null;
     const sorted = [...wellnessRows].sort((a, b) => {
@@ -200,7 +200,11 @@ export function DashboardClient() {
       const db = pickString(b, ["id", "date"]) ?? "";
       return db.localeCompare(da); // descending
     });
-    return sorted[0] ?? null;
+    // Skip projected future entries by finding the first with a real restingHR value
+    const withData = sorted.find(
+      (r) => pickNumber(r, ["restingHR", "restingHr", "resting_hr", "rhr"]) !== null
+    );
+    return withData ?? sorted[0] ?? null;
   }, [wellnessRows]);
 
   const wellnessKpis = useMemo(() => {
@@ -209,8 +213,8 @@ export function DashboardClient() {
     const date = pickString(wellness, ["id", "date", "start_date_local"]);
     // Intervals.icu field names (camelCase is canonical; snake_case variants included for safety)
     const restingHr = pickNumber(wellness, ["restingHR", "restingHr", "resting_hr", "rhr"]);
-    // hrvNightAvg = overnight HRV from Garmin/Polar; hrv = morning HRV4Training reading
-    const hrvLastNight = pickNumber(wellness, ["hrvNightAvg", "hrv_night_avg", "hrv", "hrvScore"]);
+    // hrv = Intervals.icu field for last-night HRV; hrvNightAvg = overnight avg from Garmin/Polar
+    const hrvLastNight = pickNumber(wellness, ["hrv", "hrvNightAvg", "hrv_night_avg", "hrvScore"]);
     const sleepScore = pickNumber(wellness, ["sleepScore", "sleep_score", "garminSleepScore"]);
     const sleepSecs = pickNumber(wellness, ["sleepSecs", "sleep_secs", "sleepSeconds", "sleepDuration"]);
     // vo2max is the canonical Intervals.icu field
@@ -220,7 +224,7 @@ export function DashboardClient() {
 
     const trainingStatus = deriveTrainingStatus(form);
 
-    const HRV_KEYS = ["hrvNightAvg", "hrv_night_avg", "hrv", "hrvScore"];
+    const HRV_KEYS = ["hrv", "hrvNightAvg", "hrv_night_avg", "hrvScore"];
 
     // HRV 7-day average from most-recent 7 rows with a valid HRV value
     const recentHrvValues = wellnessRows
