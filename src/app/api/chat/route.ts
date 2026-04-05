@@ -18,6 +18,88 @@ type ChatMessage = {
   content: string;
 };
 
+// ── Context condensers ──────────────────────────────────────────────────────
+
+function formatPaceSec(secPerKm: number | null): string | null {
+  if (!secPerKm || !Number.isFinite(secPerKm) || secPerKm <= 0) return null;
+  const s = Math.round(secPerKm);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}/km`;
+}
+
+/** One line per lap: #N dist pace HR cadence VR SL */
+function condenseLaps(laps: any[], maxLaps = 20): string {
+  return laps
+    .slice(0, maxLaps)
+    .map((lap) => {
+      return [
+        `#${lap.index + 1}`,
+        lap.distance_m != null ? `${Math.round(lap.distance_m)}m` : null,
+        formatPaceSec(lap.pace_sec_per_km),
+        lap.avg_hr != null ? `${Math.round(lap.avg_hr)}bpm` : null,
+        lap.avg_cadence != null ? `${Math.round(lap.avg_cadence)}spm` : null,
+        lap.avg_vertical_ratio != null ? `VR:${lap.avg_vertical_ratio.toFixed(1)}%` : null,
+        lap.avg_stride_length_m != null ? `SL:${lap.avg_stride_length_m.toFixed(2)}m` : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+    })
+    .join("\n");
+}
+
+/** Strip raw laps + drift numbers; keep booleans, notes, and counts. */
+function condenseAnalysis(analysis: any): any {
+  if ("error" in analysis) return analysis;
+  const { laps: _laps, trends, ...rest } = analysis;
+  const condensedTrends = trends
+    ? {
+        work_interval_count: trends.work_interval_count,
+        pace_degraded: trends.pace_degraded,
+        hr_climbed_at_similar_pace: trends.hr_climbed_at_similar_pace,
+        cadence_dropped: trends.cadence_dropped,
+        power_held: trends.power_held,
+        vertical_ratio_increased: trends.vertical_ratio_increased,
+        gct_increased: trends.gct_increased,
+        stride_length_shortened: trends.stride_length_shortened,
+        notes: trends.notes,
+      }
+    : undefined;
+  return { ...rest, trends: condensedTrends };
+}
+
+/** Slim each activity to the fields Claude actually needs for context. */
+function condenseActivities(activities: unknown): any[] {
+  const arr = Array.isArray(activities) ? activities : [];
+  return arr.map((a: any) => ({
+    id: a.id,
+    date: a.start_date_local ?? a.date,
+    type: a.type,
+    name: a.name,
+    distance_m: a.distance,
+    moving_time_s: a.moving_time,
+    avg_hr: a.average_heartrate ?? a.avg_hr ?? null,
+    avg_pace: a.average_speed != null ? formatPaceSec(1000 / a.average_speed) : null,
+  }));
+}
+
+/** Latest wellness entry only, as a one-line summary. */
+function condenseWellness(wellness: unknown): string {
+  const arr = Array.isArray(wellness) ? wellness : [];
+  if (!arr.length) return "no wellness data";
+  const w: any = arr[arr.length - 1];
+  return [
+    w.date ?? w.id ?? "latest",
+    w.hrv != null ? `HRV:${w.hrv}` : w.hrvRmssd != null ? `HRV:${w.hrvRmssd}` : null,
+    w.restingHR != null ? `RHR:${w.restingHR}` : null,
+    w.sleepScore != null ? `sleep:${w.sleepScore}` : null,
+    w.ctl != null ? `CTL:${Math.round(w.ctl)}` : null,
+    w.atl != null ? `ATL:${Math.round(w.atl)}` : null,
+    w.form != null ? `form:${Math.round(w.form)}` : null,
+    w.spO2 != null ? `SpO2:${w.spO2}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
 const ATHLETE_GOALS_CONTEXT = [
   "ATHLETE_LEVEL_AND_GOALS (use for pacing expectations and recommendations):",
   "- Experienced runner: marathon PR under 3 hours.",
@@ -79,7 +161,8 @@ const RUNNING_DYNAMICS_CONTEXT = [
 
 function buildSystemPrompt(parts: {
   athleteProfile: unknown;
-  recent: unknown;
+  recentActivities: any[];
+  wellnessSummary: string;
   sessionBlock?: string;
 }) {
   return [
@@ -104,8 +187,11 @@ function buildSystemPrompt(parts: {
     "ATHLETE_PROFILE_JSON:",
     JSON.stringify(parts.athleteProfile),
     "",
-    "RECENT_INTERVALS_DATA_JSON (summary list — session detail may be in SESSION_INTERVAL_ANALYSIS_JSON):",
-    JSON.stringify(parts.recent),
+    "RECENT_ACTIVITIES (condensed — id, date, type, distance, time, avg_hr, avg_pace):",
+    JSON.stringify(parts.recentActivities),
+    "",
+    "WELLNESS_LATEST:",
+    parts.wellnessSummary,
   ].join("\n");
 }
 
@@ -247,15 +333,16 @@ export async function POST(request: Request) {
 
         const analysis = buildSessionAnalysisFromActivity(activityDetail, streams);
 
+        const laps = "error" in analysis ? [] : (analysis as any).laps ?? [];
         sessionBlock = [
           "SESSION_TARGET_ACTIVITY_SUMMARY_JSON:",
           JSON.stringify(summary),
           "",
-          "RAW_LAP_ROWS_JSON (distance m, duration s, pace s/km, HR, cadence, power per lap where available):",
-          JSON.stringify("error" in analysis ? [] : analysis.laps),
+          `LAP_SUMMARY (≤20 laps; #N dist pace HR cadence VR SL):`,
+          condenseLaps(laps),
           "",
-          "SESSION_INTERVAL_ANALYSIS_JSON (phases, work/recovery summaries, trends — primary source for your breakdown):",
-          JSON.stringify(analysis),
+          "SESSION_INTERVAL_ANALYSIS_JSON (phases, work/recovery summaries, trend conclusions — primary source for breakdown):",
+          JSON.stringify(condenseAnalysis(analysis)),
         ].join("\n");
       } catch (e) {
         sessionBlock = [
@@ -274,7 +361,8 @@ export async function POST(request: Request) {
 
   const system = buildSystemPrompt({
     athleteProfile,
-    recent,
+    recentActivities: condenseActivities((recent as any).activities),
+    wellnessSummary: condenseWellness((recent as any).wellness),
     sessionBlock: sessionBlock || undefined,
   });
 
