@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -181,6 +181,11 @@ export function DashboardClient() {
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
 
+  const [readiness, setReadiness] = useState<string | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+  const readinessStarted = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -214,6 +219,48 @@ export function DashboardClient() {
       cancelled = true;
     };
   }, []);
+
+  async function fetchReadiness(kpis: NonNullable<typeof wellnessKpis>) {
+    setReadinessLoading(true);
+    setReadinessError(null);
+    try {
+      const res = await fetch("/api/readiness", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          hrvLastNight: kpis.hrvLastNight,
+          hrv7DayAvg: kpis.hrv7DayAvg,
+          hrv7DayStatus: kpis.hrv7DayStatus,
+          restingHr: kpis.restingHr,
+          sleepScore: kpis.sleepScore,
+          sleepSecs: kpis.sleepSecs,
+          form: kpis.form,
+          ctl: kpis.ctl,
+          atl: kpis.atl,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        const msg =
+          body && typeof body === "object" && "error" in body
+            ? String((body as AnyRecord).error)
+            : `Request failed (${res.status})`;
+        throw new Error(msg);
+      }
+      const { report } = (await res.json()) as { report: string };
+      setReadiness(report);
+      const today = new Date().toISOString().slice(0, 10);
+      try {
+        localStorage.setItem("readiness-report", JSON.stringify({ date: today, report }));
+      } catch {
+        /* ignore */
+      }
+    } catch (e) {
+      setReadinessError(e instanceof Error ? e.message : "Failed to generate report");
+    } finally {
+      setReadinessLoading(false);
+    }
+  }
 
   const activities = useMemo(() => asArray(data?.activities), [data]);
   const wellnessRows = useMemo(() => asArray(data?.wellness), [data]);
@@ -259,10 +306,11 @@ export function DashboardClient() {
       vo2maxIsGarminFallback = true;
     }
 
+    const ctl = pickNumber(wellness, ["ctl", "CTL", "icu_ctl"]);
+    const atl = pickNumber(wellness, ["atl", "ATL", "icu_atl"]);
+
     let form = pickNumber(wellness, ["icu_form", "form", "tsb"]);
     if (form == null) {
-      const ctl = pickNumber(wellness, ["ctl", "CTL", "icu_ctl"]);
-      const atl = pickNumber(wellness, ["atl", "ATL", "icu_atl"]);
       if (ctl != null && atl != null) {
         form = ctl - atl;
       }
@@ -303,9 +351,45 @@ export function DashboardClient() {
       vo2max,
       vo2maxIsGarminFallback,
       form,
+      ctl,
+      atl,
       trainingStatus,
     };
   }, [wellness, wellnessRows]);
+
+  useEffect(() => {
+    if (!wellnessKpis || readinessStarted.current) return;
+    readinessStarted.current = true;
+
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const cached = localStorage.getItem("readiness-report");
+      if (cached) {
+        const parsed = JSON.parse(cached) as { date: string; report: string };
+        if (parsed.date === today && typeof parsed.report === "string" && parsed.report.trim()) {
+          setReadiness(parsed.report);
+          return;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    fetchReadiness(wellnessKpis);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wellnessKpis]);
+
+  function handleRefreshReadiness() {
+    if (!wellnessKpis || readinessLoading) return;
+    try {
+      localStorage.removeItem("readiness-report");
+    } catch {
+      /* ignore */
+    }
+    setReadiness(null);
+    setReadinessError(null);
+    fetchReadiness(wellnessKpis);
+  }
 
   async function sendChatMessage() {
     const text = chatInput.trim();
@@ -394,6 +478,119 @@ export function DashboardClient() {
         </div>
       ) : (
         <>
+          {/* ── Morning Readiness ────────────────────────────── */}
+          {(readiness || readinessLoading || readinessError) && (
+            <div
+              className="card"
+              style={{
+                borderLeft: "4px solid #8fba24",
+                paddingLeft: 20,
+                display: "grid",
+                gap: 12,
+              }}
+            >
+              <div className="row space-between">
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.09em",
+                    color: "#8fba24",
+                  }}
+                >
+                  Morning Briefing
+                </div>
+                <button
+                  className="iconBtn"
+                  onClick={handleRefreshReadiness}
+                  disabled={readinessLoading}
+                  title="Regenerate report"
+                  style={{ width: 28, height: 28 }}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{
+                      transition: "transform 0.3s",
+                      transform: readinessLoading ? "rotate(360deg)" : "none",
+                    }}
+                  >
+                    <path d="M13.65 2.35A8 8 0 1 0 15 8" />
+                    <polyline points="15 2 15 6 11 6" />
+                  </svg>
+                </button>
+              </div>
+
+              {readinessLoading && (
+                <div
+                  className="readinessPulse"
+                  style={{
+                    display: "grid",
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      height: 14,
+                      width: "55%",
+                      borderRadius: 6,
+                      background: "rgba(255,255,255,0.08)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      height: 14,
+                      width: "90%",
+                      borderRadius: 6,
+                      background: "rgba(255,255,255,0.08)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      height: 14,
+                      width: "75%",
+                      borderRadius: 6,
+                      background: "rgba(255,255,255,0.08)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      height: 14,
+                      width: "85%",
+                      borderRadius: 6,
+                      background: "rgba(255,255,255,0.08)",
+                    }}
+                  />
+                </div>
+              )}
+
+              {readiness && !readinessLoading && (
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: 14,
+                    lineHeight: 1.65,
+                    color: "var(--text)",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {readiness}
+                </p>
+              )}
+
+              {readinessError && !readinessLoading && (
+                <div className="error">{readinessError}</div>
+              )}
+            </div>
+          )}
+
           {/* ── Wellness ─────────────────────────────────────── */}
           <div className="card stack">
             <div className="row space-between">

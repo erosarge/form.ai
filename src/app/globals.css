@@ -375,6 +375,16 @@ a {
   border-color: rgba(255, 255, 255, 0.18);
 }
 
+/* ── Readiness card pulse ────────────────────────────────── */
+@keyframes readinessPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.readinessPulse {
+  animation: readinessPulse 1.6s ease-in-out infinite;
+}
+
 /* ── Utility ─────────────────────────────────────────────── */
 .muted {
   color: var(--muted);
