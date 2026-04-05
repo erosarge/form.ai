@@ -14,28 +14,18 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main className="container stack">
-      <div className="row wrap space-between" style={{ paddingBottom: 8 }}>
-        <div
-          style={{
-            fontSize: 22,
-            fontWeight: 800,
-            color: "#8fba24",
-            letterSpacing: "-0.03em",
-            fontFamily: "inherit",
-          }}
-        >
-          FormAI
-        </div>
+    <>
+      <header className="siteHeader">
+        <span className="logo">FormAI</span>
         <form action={signOut}>
           <button className="iconBtn" type="submit" title="Sign out" aria-label="Sign out">
             <svg
-              width="17"
-              height="17"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.8"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
@@ -45,8 +35,10 @@ export default async function DashboardPage() {
             </svg>
           </button>
         </form>
-      </div>
-      <DashboardClient />
-    </main>
+      </header>
+      <main className="container stack">
+        <DashboardClient />
+      </main>
+    </>
   );
 }

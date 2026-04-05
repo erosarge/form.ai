@@ -73,7 +73,7 @@ function formatInt(n: number | null) {
   return String(Math.round(n));
 }
 
-/** Format an ISO date string as "3 Apr 2026" */
+/** Format an ISO date string as "5 Apr" */
 function formatActivityDate(dateStr: string | null): string {
   if (!dateStr) return "—";
   const d = new Date(dateStr.substring(0, 10) + "T12:00:00Z");
@@ -81,7 +81,6 @@ function formatActivityDate(dateStr: string | null): string {
   return d.toLocaleDateString("en-GB", {
     day: "numeric",
     month: "short",
-    year: "numeric",
     timeZone: "UTC",
   });
 }
@@ -147,16 +146,16 @@ function deriveHrv7DayStatus(
 }
 
 const TRAINING_STATUS_COLORS: Record<TrainingStatusKey, string> = {
-  fresh: "#4ade80",
-  optimal: "#60a5fa",
-  productive: "#fbbf24",
-  overreaching: "#f87171",
+  fresh: "#4caf7d",
+  optimal: "#a3c45a",
+  productive: "#d4a017",
+  overreaching: "#e05555",
 };
 
 const HRV_STATUS_COLORS: Record<HrvStatusKey, string> = {
-  balanced: "#4ade80",
-  elevated: "#fbbf24",
-  suppressed: "#f87171",
+  balanced: "#4caf7d",
+  elevated: "#d4a017",
+  suppressed: "#e05555",
 };
 
 const HRV_STATUS_LABELS: Record<HrvStatusKey, string> = {
@@ -464,12 +463,12 @@ export function DashboardClient() {
     <section className="stack">
       {loading ? (
         <div className="card stack">
-          <div style={{ fontWeight: 650 }}>Loading…</div>
+          <div style={{ fontWeight: 500 }}>Loading…</div>
           <div className="muted">Fetching activities and wellness from Intervals.icu.</div>
         </div>
       ) : error ? (
         <div className="card stack">
-          <div style={{ fontWeight: 650 }}>Couldn&apos;t load dashboard</div>
+          <div style={{ fontWeight: 500 }}>Couldn&apos;t load dashboard</div>
           <div className="error">{error}</div>
           <div className="muted">
             Check <code>INTERVALS_ICU_API_KEY</code> and <code>INTERVALS_ICU_ATHLETE_ID</code> in{" "}
@@ -478,29 +477,11 @@ export function DashboardClient() {
         </div>
       ) : (
         <>
-          {/* ── Morning Readiness ────────────────────────────── */}
+          {/* ── Morning Briefing ────────────────────────────── */}
           {(readiness || readinessLoading || readinessError) && (
-            <div
-              className="card"
-              style={{
-                borderLeft: "4px solid #8fba24",
-                paddingLeft: 20,
-                display: "grid",
-                gap: 12,
-              }}
-            >
+            <div className="briefingCard">
               <div className="row space-between">
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.09em",
-                    color: "#8fba24",
-                  }}
-                >
-                  Morning Briefing
-                </div>
+                <span className="briefingLabel">Morning Briefing</span>
                 <button
                   className="iconBtn"
                   onClick={handleRefreshReadiness}
@@ -509,8 +490,8 @@ export function DashboardClient() {
                   style={{ width: 28, height: 28 }}
                 >
                   <svg
-                    width="14"
-                    height="14"
+                    width="13"
+                    height="13"
                     viewBox="0 0 16 16"
                     fill="none"
                     stroke="currentColor"
@@ -518,7 +499,7 @@ export function DashboardClient() {
                     strokeLinecap="round"
                     strokeLinejoin="round"
                     style={{
-                      transition: "transform 0.3s",
+                      transition: "transform 0.35s",
                       transform: readinessLoading ? "rotate(360deg)" : "none",
                     }}
                   >
@@ -529,60 +510,23 @@ export function DashboardClient() {
               </div>
 
               {readinessLoading && (
-                <div
-                  className="readinessPulse"
-                  style={{
-                    display: "grid",
-                    gap: 8,
-                  }}
-                >
-                  <div
-                    style={{
-                      height: 14,
-                      width: "55%",
-                      borderRadius: 6,
-                      background: "rgba(255,255,255,0.08)",
-                    }}
-                  />
-                  <div
-                    style={{
-                      height: 14,
-                      width: "90%",
-                      borderRadius: 6,
-                      background: "rgba(255,255,255,0.08)",
-                    }}
-                  />
-                  <div
-                    style={{
-                      height: 14,
-                      width: "75%",
-                      borderRadius: 6,
-                      background: "rgba(255,255,255,0.08)",
-                    }}
-                  />
-                  <div
-                    style={{
-                      height: 14,
-                      width: "85%",
-                      borderRadius: 6,
-                      background: "rgba(255,255,255,0.08)",
-                    }}
-                  />
+                <div className="readinessPulse" style={{ display: "grid", gap: 10 }}>
+                  {[55, 90, 75, 85].map((w, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        height: 13,
+                        width: `${w}%`,
+                        borderRadius: 4,
+                        background: "rgba(255,255,255,0.06)",
+                      }}
+                    />
+                  ))}
                 </div>
               )}
 
               {readiness && !readinessLoading && (
-                <p
-                  style={{
-                    margin: 0,
-                    fontSize: 14,
-                    lineHeight: 1.65,
-                    color: "var(--text)",
-                    whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {readiness}
-                </p>
+                <p className="briefingText">{readiness}</p>
               )}
 
               {readinessError && !readinessLoading && (
@@ -593,38 +537,24 @@ export function DashboardClient() {
 
           {/* ── Wellness ─────────────────────────────────────── */}
           <div className="card stack">
-            <div className="row space-between">
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>
-                Wellness
-              </h2>
-              <div style={{ fontSize: 12, color: "var(--muted)" }}>
-                {wellnessKpis?.date ?? "—"}
-              </div>
-            </div>
+            <p className="sectionTitle">Wellness</p>
 
             <div className="kpiGrid">
-              {/* Resting HR */}
               <div className="kpi">
                 <div className="kpiLabel">Resting HR</div>
                 <div className="kpiValue">{formatInt(wellnessKpis?.restingHr ?? null)}</div>
-                <div className="kpiSub">bpm</div>
+                <div className="kpiUnit">bpm</div>
               </div>
 
-              {/* HRV Last Night */}
               <div className="kpi">
                 <div className="kpiLabel">HRV Last Night</div>
-                <div className="kpiValue">
-                  {formatOneDecimal(wellnessKpis?.hrvLastNight ?? null)}
-                </div>
-                <div className="kpiSub">ms</div>
+                <div className="kpiValue">{formatOneDecimal(wellnessKpis?.hrvLastNight ?? null)}</div>
+                <div className="kpiUnit">ms</div>
               </div>
 
-              {/* HRV 7-Day */}
               <div className="kpi">
                 <div className="kpiLabel">HRV 7-Day</div>
-                <div className="kpiValue">
-                  {formatOneDecimal(wellnessKpis?.hrv7DayAvg ?? null)}
-                </div>
+                <div className="kpiValue">{formatOneDecimal(wellnessKpis?.hrv7DayAvg ?? null)}</div>
                 {wellnessKpis?.hrv7DayStatus ? (
                   <div
                     className="kpiStatus"
@@ -633,65 +563,53 @@ export function DashboardClient() {
                     {HRV_STATUS_LABELS[wellnessKpis.hrv7DayStatus]}
                   </div>
                 ) : (
-                  <div className="kpiSub">ms avg</div>
+                  <div className="kpiUnit">ms avg</div>
                 )}
               </div>
 
-              {/* Sleep Score */}
               <div className="kpi">
                 <div className="kpiLabel">Sleep Score</div>
                 <div className="kpiValue">{formatInt(wellnessKpis?.sleepScore ?? null)}</div>
-                <div className="kpiSub">/ 100</div>
+                <div className="kpiUnit">/ 100</div>
               </div>
 
-              {/* Sleep Duration */}
               <div className="kpi">
                 <div className="kpiLabel">Sleep Duration</div>
-                <div className="kpiValue">
-                  {formatSleepHmm(wellnessKpis?.sleepSecs ?? null)}
-                </div>
-                <div className="kpiSub">h:mm</div>
+                <div className="kpiValue">{formatSleepHmm(wellnessKpis?.sleepSecs ?? null)}</div>
+                <div className="kpiUnit">h:mm</div>
               </div>
 
-              {/* VO₂ Max */}
               <div className="kpi">
                 <div className="kpiLabel">VO₂ Max</div>
-                <div className="kpiValue">
-                  {formatOneDecimal(wellnessKpis?.vo2max ?? null)}
+                <div className="kpiValue">{formatOneDecimal(wellnessKpis?.vo2max ?? null)}</div>
+                <div
+                  className="kpiUnit"
+                  title={
+                    wellnessKpis?.vo2maxIsGarminFallback
+                      ? "Value from Garmin device — not available via Intervals.icu"
+                      : undefined
+                  }
+                >
+                  {wellnessKpis?.vo2maxIsGarminFallback ? "mL/kg/min · Garmin" : "mL/kg/min"}
                 </div>
-                {wellnessKpis?.vo2maxIsGarminFallback ? (
-                  <div
-                    className="kpiSub"
-                    title="Value from Garmin device — not available via Intervals.icu"
-                  >
-                    mL/kg/min · Garmin
-                  </div>
-                ) : (
-                  <div className="kpiSub">mL/kg/min</div>
-                )}
               </div>
 
               {/* Training Status — full width */}
-              <div
-                className={`kpi kpiTraining${wellnessKpis?.trainingStatus?.key === "optimal" ? " statusOptimal" : ""}`}
-              >
+              <div className="kpi kpiTraining">
                 <div className="kpiLabel">Training Status</div>
                 {wellnessKpis?.trainingStatus ? (
                   <>
                     <div
                       className="kpiValue"
-                      style={{
-                        color: TRAINING_STATUS_COLORS[wellnessKpis.trainingStatus.key],
-                      }}
+                      style={{ color: TRAINING_STATUS_COLORS[wellnessKpis.trainingStatus.key] }}
                     >
                       {wellnessKpis.trainingStatus.label}
                     </div>
-                    <div className="kpiSub">
+                    <div className="kpiUnit">
                       {wellnessKpis.trainingStatus.description}
                       {wellnessKpis.form != null && (
-                        <span style={{ color: "var(--muted)", marginLeft: 6 }}>
-                          Form{" "}
-                          {wellnessKpis.form > 0 ? "+" : ""}
+                        <span style={{ color: "var(--text-muted)", marginLeft: 8 }}>
+                          Form {wellnessKpis.form > 0 ? "+" : ""}
                           {wellnessKpis.form.toFixed(1)}
                         </span>
                       )}
@@ -707,16 +625,14 @@ export function DashboardClient() {
           {/* ── AI Coach Chat ─────────────────────────────────── */}
           <div className="card chatWrap">
             <div className="row space-between">
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>
-                AI Coach
-              </h2>
+              <p className="sectionTitle">AI Coach</p>
               <span
                 style={{
-                  fontSize: 11,
-                  fontWeight: 600,
+                  fontSize: 10,
+                  fontWeight: 500,
                   textTransform: "uppercase",
-                  letterSpacing: "0.07em",
-                  color: chatBusy ? "var(--accent)" : "var(--muted)",
+                  letterSpacing: "0.12em",
+                  color: chatBusy ? "var(--accent)" : "var(--text-muted)",
                 }}
               >
                 {chatBusy ? "Thinking…" : "Ready"}
@@ -724,7 +640,7 @@ export function DashboardClient() {
             </div>
 
             <div className="chatLog" aria-live="polite">
-              <div className="stack" style={{ gap: 10 }}>
+              <div className="stack" style={{ gap: 8 }}>
                 {chat.map((t, i) => (
                   <div key={`${t.ts}-${i}`} className={`chatMsg ${t.role}`}>
                     <div className="chatMeta">{t.role === "user" ? "You" : "Coach"}</div>
@@ -755,9 +671,7 @@ export function DashboardClient() {
 
           {/* ── Recent Activities ─────────────────────────────── */}
           <div className="card stack">
-            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "var(--text)" }}>
-              Recent Activities
-            </h2>
+            <p className="sectionTitle">Recent Activities</p>
 
             {activities.length === 0 ? (
               <div className="muted">No activities returned.</div>
@@ -807,7 +721,7 @@ export function DashboardClient() {
                           <td style={{ minWidth: 90 }}>
                             <span className={`typePill ${typeCls}`}>{typeLabel}</span>
                           </td>
-                          <td style={{ minWidth: 120, color: "var(--text-secondary)" }}>
+                          <td style={{ minWidth: 100, color: "var(--text-secondary)" }}>
                             {formatActivityDate(rawDate)}
                           </td>
                           <td className="num" style={{ minWidth: 90 }}>

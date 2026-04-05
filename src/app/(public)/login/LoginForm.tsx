@@ -38,53 +38,84 @@ export function LoginForm() {
   }
 
   return (
-    <main className="container stack">
-      <h1>Login</h1>
-
-      <div className="card stack" style={{ maxWidth: 420 }}>
-        <form className="stack" onSubmit={onSubmit}>
-          <label className="stack" style={{ gap: 6 }}>
-            <span className="muted">Email</span>
-            <input
-              className="input"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
-          </label>
-
-          <label className="stack" style={{ gap: 6 }}>
-            <span className="muted">Password</span>
-            <input
-              className="input"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </label>
-
-          <button
-            className="button"
-            type="submit"
-            disabled={status.type === "loading"}
+    <>
+      <header className="siteHeader">
+        <span className="logo">FormAI</span>
+      </header>
+      <main className="container" style={{ display: "flex", alignItems: "flex-start", paddingTop: 48 }}>
+        <div className="card stack" style={{ maxWidth: 400, width: "100%" }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 10,
+              fontWeight: 500,
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+              color: "var(--text-secondary)",
+            }}
           >
-            {status.type === "loading" ? "Signing in…" : "Sign in"}
-          </button>
+            Sign in
+          </p>
+          <form className="stack" onSubmit={onSubmit} style={{ gap: 14 }}>
+            <label className="stack" style={{ gap: 6 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 500,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.12em",
+                  color: "var(--text-muted)",
+                }}
+              >
+                Email
+              </span>
+              <input
+                className="input"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+            </label>
 
-          {status.type === "error" ? (
-            <div className="error">{status.message}</div>
-          ) : null}
+            <label className="stack" style={{ gap: 6 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 500,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.12em",
+                  color: "var(--text-muted)",
+                }}
+              >
+                Password
+              </span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </label>
 
-          <div className="muted">
-            You can create a user in Supabase Auth (Email) first, then sign in
-            here.
-          </div>
-        </form>
-      </div>
-    </main>
+            <button
+              className="button"
+              type="submit"
+              disabled={status.type === "loading"}
+              style={{ marginTop: 4 }}
+            >
+              {status.type === "loading" ? "Signing in…" : "Sign in"}
+            </button>
+
+            {status.type === "error" ? (
+              <div className="error">{status.message}</div>
+            ) : null}
+          </form>
+        </div>
+      </main>
+    </>
   );
 }
