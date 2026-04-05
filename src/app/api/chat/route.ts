@@ -353,8 +353,8 @@ export async function POST(request: Request) {
           name: pickString(act, ["name", "title"]),
           type: pickString(act, ["type"]),
           start: pickString(act, ["start_date_local", "start_date", "date"]),
-          distance_m: act["distance"] as number | undefined,
-          moving_time: act["moving_time"] as number | undefined,
+          distance_m: (act as any)["distance"] as number | undefined,
+          moving_time: (act as any)["moving_time"] as number | undefined,
         };
 
         const analysis = buildSessionAnalysisFromActivity(act, streams);
