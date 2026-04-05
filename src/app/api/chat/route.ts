@@ -321,7 +321,67 @@ export async function POST(request: Request) {
           loadStreamsWithFallback(activityId),
         ]);
 
+        // ── TEMP DEBUG: log raw field names from Intervals.icu endpoints ──────
         const act = activityDetail as Record<string, unknown>;
+        console.log(
+          "[DEBUG] /activity/{id} top-level keys:",
+          Object.keys(act),
+        );
+        // Check first icu_interval for running dynamics fields
+        const icuIntervals = Array.isArray(act.icu_intervals) ? act.icu_intervals : [];
+        if (icuIntervals.length > 0) {
+          console.log(
+            "[DEBUG] icu_intervals[0] keys:",
+            Object.keys(icuIntervals[0] as object),
+          );
+          console.log(
+            "[DEBUG] icu_intervals[0] running dynamics raw values:",
+            JSON.stringify(
+              Object.fromEntries(
+                Object.entries(icuIntervals[0] as object).filter(([k]) =>
+                  /vertical|ground_contact|stride|gct|oscillation|cadence/i.test(k),
+                ),
+              ),
+            ),
+          );
+        }
+        // Check laps array too
+        const lapsRaw = Array.isArray(act.laps) ? act.laps : [];
+        if (lapsRaw.length > 0) {
+          console.log(
+            "[DEBUG] activity.laps[0] keys:",
+            Object.keys(lapsRaw[0] as object),
+          );
+          console.log(
+            "[DEBUG] activity.laps[0] running dynamics raw values:",
+            JSON.stringify(
+              Object.fromEntries(
+                Object.entries(lapsRaw[0] as object).filter(([k]) =>
+                  /vertical|ground_contact|stride|gct|oscillation|cadence/i.test(k),
+                ),
+              ),
+            ),
+          );
+        }
+        // Log streams structure
+        if (streams != null) {
+          if (Array.isArray(streams)) {
+            console.log(
+              "[DEBUG] streams is an array of length",
+              streams.length,
+              "| stream types available:",
+              streams.map((s: any) => s?.type ?? s?.stream_type ?? Object.keys(s ?? {})[0]),
+            );
+          } else if (typeof streams === "object") {
+            console.log(
+              "[DEBUG] streams is an object with keys:",
+              Object.keys(streams as object),
+            );
+          }
+        } else {
+          console.log("[DEBUG] streams: null (all fetch attempts failed)");
+        }
+        // ── END TEMP DEBUG ────────────────────────────────────────────────────
         const summary = {
           id: activityId,
           name: pickString(act, ["name", "title"]),
