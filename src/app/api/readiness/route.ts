@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server-client";
+import { fetchIntervalsRecent } from "@/lib/intervals/intervals-client";
 
 function getAnthropicEnv() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -8,8 +9,24 @@ function getAnthropicEnv() {
   return { apiKey, model };
 }
 
-const READINESS_SYSTEM_PROMPT =
-  "You are generating a morning readiness report for Eros, an endurance athlete targeting sub-80 minute half marathon and sub-17 minute 5k. Be direct, specific, and concise. Sound like an experienced coach giving a pre-session briefing. No markdown, no lists, plain paragraphs only. Maximum 4 sentences total.";
+const READINESS_SYSTEM_PROMPT = [
+  "You are generating a morning readiness report for Eros, an endurance athlete targeting sub-80 minute half marathon and sub-17 minute 5k.",
+  "Be direct, specific, and concise. Sound like an experienced coach giving a pre-session briefing.",
+  "No markdown, no lists, plain paragraphs only. Maximum 4 sentences total.",
+  "",
+  "LANGUAGE RULES — follow strictly:",
+  "- Never use the acronyms TSB, CTL, ATL, or Form. These are internal training load numbers — translate them into plain English instead.",
+  "- Instead of CTL say things like 'your fitness base is solid', 'you've built a strong base over the past weeks', or 'your aerobic foundation is in good shape'.",
+  "- Instead of ATL say things like 'you've been carrying a good training load this week', 'your body is under significant load right now', or 'the fatigue from recent sessions is still in your legs'.",
+  "- Instead of TSB/Form say things like 'you're carrying good freshness today', 'you're well recovered and ready to push', or 'you need another day before going hard'.",
+  "- Never mention any of these acronyms even in passing — no parenthetical explanations, no 'your form (TSB)' constructions.",
+  "",
+  "STRUCTURE:",
+  "1. A short greeting to Eros.",
+  "2. One sentence overall readiness assessment.",
+  "3. Two or three sentences explaining what the data shows — HRV, sleep, recent training load — in plain coach language.",
+  "4. One final sentence that is a specific workout suggestion. Choose exactly one: a long easy run, an interval session, a tempo run, a short recovery run, a strength and gym session, or a rest day. Phrase it naturally, for example: 'A tempo run today would be a smart choice given how fresh you are.' or 'A 40 minute easy run is all your body needs today — save the quality for tomorrow.' or 'Take the day off — let the adaptation happen.'",
+].join("\n");
 
 function fmtNum(v: number | null, decimals = 0): string {
   if (v == null) return "unavailable";
@@ -47,6 +64,33 @@ export async function POST(request: Request) {
 
   const { apiKey, model } = getAnthropicEnv();
 
+  // Fetch recent activities for context
+  let recentActivitiesSummary = "No recent activity data available.";
+  try {
+    const recent = await fetchIntervalsRecent({ days: 7, limit: 15 });
+    const activities = Array.isArray(recent.activities) ? recent.activities : [];
+    if (activities.length === 0) {
+      recentActivitiesSummary = "No activities recorded in the last 7 days.";
+    } else {
+      const lines = activities.map((a: any) => {
+        const date = (a.start_date_local ?? a.date ?? "").slice(0, 10);
+        const type = a.type ?? "Unknown";
+        const distKm =
+          a.distance != null ? `${(a.distance / 1000).toFixed(1)} km` : null;
+        const durMin =
+          a.moving_time != null
+            ? `${Math.round(a.moving_time / 60)} min`
+            : a.elapsed_time != null
+              ? `${Math.round(a.elapsed_time / 60)} min`
+              : null;
+        return [date, type, distKm, durMin].filter(Boolean).join(", ");
+      });
+      recentActivitiesSummary = lines.join("\n");
+    }
+  } catch {
+    // Non-fatal: proceed without activity context
+  }
+
   const num = (k: string) => {
     const v = body[k];
     return typeof v === "number" && Number.isFinite(v) ? v : null;
@@ -68,16 +112,21 @@ export async function POST(request: Request) {
 
   const userMessage = [
     "Generate a morning readiness report based on this data:",
+    "",
+    "RECOVERY METRICS:",
     `HRV last night: ${fmtNum(hrvLastNight, 1)}ms`,
     `HRV 7-day average: ${fmtNum(hrv7DayAvg, 1)}ms (${hrv7DayStatus ?? "trend unknown"})`,
     `Resting HR: ${fmtNum(restingHr)} bpm`,
     `Sleep score: ${fmtNum(sleepScore)}/100`,
     `Sleep duration: ${fmtSleep(sleepSecs)}`,
-    `Form (TSB): ${fmtForm(form)}`,
-    `CTL: ${fmtNum(ctl)}`,
-    `ATL: ${fmtNum(atl)}`,
     "",
-    'Write it as: a short greeting to Eros, a one-sentence overall readiness assessment, 2-3 sentences explaining what the data shows, a recommendation starting with "Today:", and one watch-out sentence. Plain text only.',
+    "TRAINING LOAD (translate to plain English — never use the acronym names):",
+    `Freshness score: ${fmtForm(form)}`,
+    `Fitness base score: ${fmtNum(ctl)}`,
+    `Recent load score: ${fmtNum(atl)}`,
+    "",
+    "RECENT ACTIVITIES (last 7 days — use this to understand if yesterday was a hard session, rest day, or easy run):",
+    recentActivitiesSummary,
   ].join("\n");
 
   const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
