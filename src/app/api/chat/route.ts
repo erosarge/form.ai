@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server-client";
 import {
   fetchIntervalsActivityDetail,
+  fetchIntervalsActivityLaps,
   fetchIntervalsActivityStreams,
   fetchIntervalsAthleteProfile,
   fetchIntervalsRecent,
@@ -321,67 +322,47 @@ export async function POST(request: Request) {
           loadStreamsWithFallback(activityId),
         ]);
 
-        // ── TEMP DEBUG: log raw field names from Intervals.icu endpoints ──────
-        const act = activityDetail as Record<string, unknown>;
+        // ── DEBUG: log raw JSON from all three Intervals.icu endpoints ──────────
+        // 1) First activity from the activities list endpoint
+        const activitiesArr = Array.isArray((recent as any).activities)
+          ? (recent as any).activities
+          : [];
+        if (activitiesArr.length > 0) {
+          console.log(
+            "[DEBUG] GET /athlete/{id}/activities — first activity full JSON:\n",
+            JSON.stringify(activitiesArr[0], null, 2),
+          );
+        } else {
+          console.log("[DEBUG] GET /athlete/{id}/activities — returned empty array");
+        }
+
+        // 2) Full activity detail response from /activity/{id}
         console.log(
-          "[DEBUG] /activity/{id} top-level keys:",
-          Object.keys(act),
+          "[DEBUG] GET /activity/{id} — full JSON:\n",
+          JSON.stringify(activityDetail, null, 2),
         );
-        // Check first icu_interval for running dynamics fields
-        const icuIntervals = Array.isArray(act.icu_intervals) ? act.icu_intervals : [];
-        if (icuIntervals.length > 0) {
+
+        // 3) /activity/{id}/laps endpoint — first lap full JSON
+        try {
+          const lapsData = await fetchIntervalsActivityLaps(activityId);
+          const lapsArr = Array.isArray(lapsData) ? lapsData : [];
           console.log(
-            "[DEBUG] icu_intervals[0] keys:",
-            Object.keys(icuIntervals[0] as object),
+            `[DEBUG] GET /activity/{id}/laps — ${lapsArr.length} lap(s) returned`,
           );
-          console.log(
-            "[DEBUG] icu_intervals[0] running dynamics raw values:",
-            JSON.stringify(
-              Object.fromEntries(
-                Object.entries(icuIntervals[0] as object).filter(([k]) =>
-                  /vertical|ground_contact|stride|gct|oscillation|cadence/i.test(k),
-                ),
-              ),
-            ),
-          );
-        }
-        // Check laps array too
-        const lapsRaw = Array.isArray(act.laps) ? act.laps : [];
-        if (lapsRaw.length > 0) {
-          console.log(
-            "[DEBUG] activity.laps[0] keys:",
-            Object.keys(lapsRaw[0] as object),
-          );
-          console.log(
-            "[DEBUG] activity.laps[0] running dynamics raw values:",
-            JSON.stringify(
-              Object.fromEntries(
-                Object.entries(lapsRaw[0] as object).filter(([k]) =>
-                  /vertical|ground_contact|stride|gct|oscillation|cadence/i.test(k),
-                ),
-              ),
-            ),
-          );
-        }
-        // Log streams structure
-        if (streams != null) {
-          if (Array.isArray(streams)) {
+          if (lapsArr.length > 0) {
             console.log(
-              "[DEBUG] streams is an array of length",
-              streams.length,
-              "| stream types available:",
-              streams.map((s: any) => s?.type ?? s?.stream_type ?? Object.keys(s ?? {})[0]),
-            );
-          } else if (typeof streams === "object") {
-            console.log(
-              "[DEBUG] streams is an object with keys:",
-              Object.keys(streams as object),
+              "[DEBUG] GET /activity/{id}/laps — laps[0] full JSON:\n",
+              JSON.stringify(lapsArr[0], null, 2),
             );
           }
-        } else {
-          console.log("[DEBUG] streams: null (all fetch attempts failed)");
+        } catch (lapsErr) {
+          console.log(
+            "[DEBUG] GET /activity/{id}/laps — fetch failed:",
+            lapsErr instanceof Error ? lapsErr.message : lapsErr,
+          );
         }
-        // ── END TEMP DEBUG ────────────────────────────────────────────────────
+        // ── END DEBUG ─────────────────────────────────────────────────────────
+        const act = activityDetail as Record<string, unknown>;
         const summary = {
           id: activityId,
           name: pickString(act, ["name", "title"]),

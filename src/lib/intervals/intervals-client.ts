@@ -69,6 +69,27 @@ export async function fetchIntervalsActivityDetail(
   return res.json();
 }
 
+export async function fetchIntervalsActivityLaps(
+  activityId: string | number,
+): Promise<unknown> {
+  const { apiKey } = getIntervalsEnv();
+
+  const headers = {
+    Authorization: basicAuthHeader(apiKey),
+    Accept: "application/json",
+  } as const;
+
+  const url = `https://intervals.icu/api/v1/activity/${encodeURIComponent(String(activityId))}/laps`;
+  const res = await fetch(url, { headers, cache: "no-store" });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Intervals activity laps fetch failed (${res.status}): ${text || res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
 export async function fetchIntervalsActivityStreams(
   activityId: string | number,
   types = "time,distance,watts,heart_rate,cadence,velocity_smooth",
