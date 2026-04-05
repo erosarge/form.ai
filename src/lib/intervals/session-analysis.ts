@@ -599,14 +599,18 @@ function normalizeSingleLap(lap: AnyRecord, index: number, source: NormalizedLap
       "avg_hr",
     ]),
     max_hr: pickNumber(lap, ["max_heartrate", "max_hr"]),
-    avg_cadence: pickNumber(lap, ["average_cadence", "avg_cadence", "cadence"]),
+    avg_cadence: (() => {
+      const raw = pickNumber(lap, ["average_cadence", "avg_cadence", "cadence"]);
+      // /intervals endpoint returns half-cadence (one foot); double it for steps/min
+      return raw != null && source === "icu_interval" ? raw * 2 : raw;
+    })(),
     avg_power: pickNumber(lap, ["average_watts", "avg_watts", "weighted_average_watts"]),
     avg_vertical_ratio: pickNumber(lap, ["average_vertical_ratio", "avg_vertical_ratio", "vertical_ratio"]),
     avg_ground_contact_time_ms: pickNumber(lap, [
       "average_ground_contact_time", "avg_ground_contact_time",
       "average_gct", "avg_gct", "ground_contact_time",
     ]),
-    avg_stride_length_m: pickNumber(lap, ["average_stride_length", "avg_stride_length", "stride_length"]),
+    avg_stride_length_m: pickNumber(lap, ["average_stride_length", "avg_stride_length", "stride_length", "average_stride"]),
     avg_ground_contact_balance: pickNumber(lap, [
       "average_ground_contact_balance", "avg_ground_contact_balance",
       "average_gct_balance", "gct_balance", "ground_contact_balance",

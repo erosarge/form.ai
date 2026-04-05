@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseServerClient } from "@/lib/supabase/server-client";
 import {
   fetchIntervalsActivityDetail,
-  fetchIntervalsActivityLaps,
+  fetchIntervalsActivityIntervals,
   fetchIntervalsActivityStreams,
   fetchIntervalsAthleteProfile,
   fetchIntervalsRecent,
@@ -27,7 +27,7 @@ function formatPaceSec(secPerKm: number | null): string | null {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}/km`;
 }
 
-/** One line per lap: #N dist pace HR cadence VR SL */
+/** One line per lap: #N dist pace HR cadence SL power */
 function condenseLaps(laps: any[], maxLaps = 20): string {
   return laps
     .slice(0, maxLaps)
@@ -38,8 +38,8 @@ function condenseLaps(laps: any[], maxLaps = 20): string {
         formatPaceSec(lap.pace_sec_per_km),
         lap.avg_hr != null ? `${Math.round(lap.avg_hr)}bpm` : null,
         lap.avg_cadence != null ? `${Math.round(lap.avg_cadence)}spm` : null,
-        lap.avg_vertical_ratio != null ? `VR:${lap.avg_vertical_ratio.toFixed(1)}%` : null,
         lap.avg_stride_length_m != null ? `SL:${lap.avg_stride_length_m.toFixed(2)}m` : null,
+        lap.avg_power != null ? `${Math.round(lap.avg_power)}W` : null,
       ]
         .filter(Boolean)
         .join(" ");
@@ -58,8 +58,6 @@ function condenseAnalysis(analysis: any): any {
         hr_climbed_at_similar_pace: trends.hr_climbed_at_similar_pace,
         cadence_dropped: trends.cadence_dropped,
         power_held: trends.power_held,
-        vertical_ratio_increased: trends.vertical_ratio_increased,
-        gct_increased: trends.gct_increased,
         stride_length_shortened: trends.stride_length_shortened,
         notes: trends.notes,
       }
@@ -145,19 +143,27 @@ function defaultRunActivityId(activities: unknown): string | null {
 }
 
 const RUNNING_DYNAMICS_CONTEXT = [
-  "RUNNING_DYNAMICS_INTERPRETATION (apply when these fields appear in laps, work_intervals, or single_effort_summary):",
-  "- avg_vertical_ratio (%): energy efficiency — well-trained runners typically 6–8%; above 9% = energy wasted bouncing vertically.",
-  "  Rising across laps/reps is a fatigue signal (form breakdown). Stable = good form discipline.",
-  "- avg_ground_contact_time_ms (ms): lower = better elastic energy return; trained runners ~190–230ms.",
-  "  Lengthening GCT across a session = neuromuscular fatigue / leg stiffness accumulating.",
-  "- avg_stride_length_m (m): shortening under fatigue is a protective response; lengthening as pace increases is healthy mechanics.",
-  "- avg_ground_contact_balance (%): 50% = perfect left/right symmetry; deviations >1–2% worth mentioning for injury risk.",
-  "- avg_vertical_oscillation_cm (cm): lower = less energy wasted; reference alongside vertical ratio.",
-  "Always describe dynamics trends in coach language, not raw numbers alone.",
-  "Good examples: 'Your vertical ratio held at 7.1% across all six reps — excellent form consistency under fatigue'",
-  "  or 'Ground contact time crept from 218ms to 247ms across the session — a clear sign of neuromuscular tiredness accumulating'",
-  "  or 'Stride length shortened by ~8cm between rep 1 and rep 5, typical of muscle fatigue limiting push-off'.",
-  "Only mention dynamics if the data is present (non-null). Skip gracefully if all null.",
+  "AVAILABLE METRICS FROM THIS DATA SOURCE:",
+  "- Pace per lap (from distance + elapsed time or average_speed)",
+  "- Heart rate per lap (average_heartrate)",
+  "- Cadence per lap (steps per minute — already doubled from raw data)",
+  "- Stride length per lap (avg_stride_length_m in meters)",
+  "- Power per lap (avg_power in watts, if the athlete records it)",
+  "- Elevation per lap (if present)",
+  "",
+  "METRICS NOT AVAILABLE FROM THIS DATA SOURCE — NEVER MENTION THEM:",
+  "The following running dynamics metrics are NOT available from this data source.",
+  "Do NOT mention them as missing, do NOT suggest the athlete enable them on their watch, do NOT reference them at all:",
+  "- Vertical ratio / vertical oscillation",
+  "- Ground contact time (GCT)",
+  "- Ground contact balance (left/right balance)",
+  "- Step speed loss",
+  "",
+  "STRIDE LENGTH INTERPRETATION (use when avg_stride_length_m is non-null):",
+  "- Shortening under fatigue is a protective response: typical of muscle fatigue limiting push-off.",
+  "- Lengthening as pace increases is healthy mechanics: more elastic energy return at higher speeds.",
+  "- Describe in coach language: 'Your stride length shortened from 1.52m in rep 1 to 1.44m by the final rep — a sign of leg fatigue limiting push-off' or 'Stride length stayed consistent at 1.48m across all reps, showing good form discipline under fatigue'.",
+  "Only mention stride length if the data is present (non-null). Skip gracefully if all null.",
 ].join("\n");
 
 function buildSystemPrompt(parts: {
@@ -323,52 +329,25 @@ export async function POST(request: Request) {
 
     if (activityId) {
       try {
-        const [activityDetail, streams] = await Promise.all([
-          fetchIntervalsActivityDetail(activityId, { intervals: true }),
+        const [activityDetail, streams, intervalsData] = await Promise.all([
+          fetchIntervalsActivityDetail(activityId, { intervals: false }),
           loadStreamsWithFallback(activityId),
+          fetchIntervalsActivityIntervals(activityId).catch(() => null),
         ]);
 
-        // ── DEBUG: log raw JSON from all three Intervals.icu endpoints ──────────
-        // 1) First activity from the activities list endpoint
-        const activitiesArr = Array.isArray((recent as any).activities)
-          ? (recent as any).activities
-          : [];
-        if (activitiesArr.length > 0) {
-          console.log(
-            "[DEBUG] GET /athlete/{id}/activities — first activity full JSON:\n",
-            JSON.stringify(activitiesArr[0], null, 2),
-          );
-        } else {
-          console.log("[DEBUG] GET /athlete/{id}/activities — returned empty array");
-        }
+        // Merge icu_intervals from the /intervals endpoint into the activity object
+        const icuIntervals =
+          intervalsData &&
+          typeof intervalsData === "object" &&
+          Array.isArray((intervalsData as any).icu_intervals)
+            ? (intervalsData as any).icu_intervals
+            : null;
 
-        // 2) Full activity detail response from /activity/{id}
-        console.log(
-          "[DEBUG] GET /activity/{id} — full JSON:\n",
-          JSON.stringify(activityDetail, null, 2),
-        );
+        const act = {
+          ...(activityDetail as Record<string, unknown>),
+          ...(icuIntervals ? { icu_intervals: icuIntervals } : {}),
+        };
 
-        // 3) /activity/{id}/laps endpoint — first lap full JSON
-        try {
-          const lapsData = await fetchIntervalsActivityLaps(activityId);
-          const lapsArr = Array.isArray(lapsData) ? lapsData : [];
-          console.log(
-            `[DEBUG] GET /activity/{id}/laps — ${lapsArr.length} lap(s) returned`,
-          );
-          if (lapsArr.length > 0) {
-            console.log(
-              "[DEBUG] GET /activity/{id}/laps — laps[0] full JSON:\n",
-              JSON.stringify(lapsArr[0], null, 2),
-            );
-          }
-        } catch (lapsErr) {
-          console.log(
-            "[DEBUG] GET /activity/{id}/laps — fetch failed:",
-            lapsErr instanceof Error ? lapsErr.message : lapsErr,
-          );
-        }
-        // ── END DEBUG ─────────────────────────────────────────────────────────
-        const act = activityDetail as Record<string, unknown>;
         const summary = {
           id: activityId,
           name: pickString(act, ["name", "title"]),
@@ -378,14 +357,14 @@ export async function POST(request: Request) {
           moving_time: act.moving_time,
         };
 
-        const analysis = buildSessionAnalysisFromActivity(activityDetail, streams);
+        const analysis = buildSessionAnalysisFromActivity(act, streams);
 
         const laps = "error" in analysis ? [] : (analysis as any).laps ?? [];
         sessionBlock = [
           "SESSION_TARGET_ACTIVITY_SUMMARY_JSON:",
           JSON.stringify(summary),
           "",
-          `LAP_SUMMARY (≤20 laps; #N dist pace HR cadence VR SL):`,
+          `LAP_SUMMARY (≤20 laps; #N dist pace HR cadence SL power):`,
           condenseLaps(laps),
           "",
           "SESSION_INTERVAL_ANALYSIS_JSON (phases, work/recovery summaries, trend conclusions — primary source for breakdown):",
