@@ -181,6 +181,7 @@ export function DashboardClient() {
   const [chatError, setChatError] = useState<string | null>(null);
 
   const [readiness, setReadiness] = useState<string | null>(null);
+  const [readinessState, setReadinessState] = useState<string | null>(null);
   const [readinessLoading, setReadinessLoading] = useState(false);
   const [readinessError, setReadinessError] = useState<string | null>(null);
   const readinessStarted = useRef(false);
@@ -219,10 +220,39 @@ export function DashboardClient() {
     };
   }, []);
 
+  type TodayActivity = {
+    name: string;
+    distanceM: number | null;
+    avgHr: number | null;
+    trainingLoad: number | null;
+    type: string | null;
+  };
+
+  const REPORT_CACHE_KEY = "readiness-report-v2";
+  const REPORT_CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+  function computeTodayActivities(): TodayActivity[] {
+    const today = new Date().toISOString().slice(0, 10);
+    return activities
+      .filter((a) => {
+        const d = pickString(a, ["start_date_local", "start_date", "date"]);
+        return d != null && d.slice(0, 10) === today;
+      })
+      .map((a) => ({
+        name: pickString(a, ["name", "title"]) ?? "Untitled",
+        distanceM: pickNumber(a, ["distance", "distance_m", "dist"]),
+        avgHr: pickNumber(a, ["average_heartrate", "avg_heartrate", "avg_hr", "average_hr"]),
+        trainingLoad: pickNumber(a, ["training_load", "icu_training_load", "load"]),
+        type: pickString(a, ["type", "sport", "sport_type"]),
+      }));
+  }
+
   async function fetchReadiness(kpis: NonNullable<typeof wellnessKpis>) {
     setReadinessLoading(true);
     setReadinessError(null);
     try {
+      const currentHour = new Date().getHours();
+      const todayActivities = computeTodayActivities();
       const res = await fetch("/api/readiness", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -236,6 +266,8 @@ export function DashboardClient() {
           form: kpis.form,
           ctl: kpis.ctl,
           atl: kpis.atl,
+          currentHour,
+          todayActivities,
         }),
       });
       if (!res.ok) {
@@ -246,11 +278,14 @@ export function DashboardClient() {
             : `Request failed (${res.status})`;
         throw new Error(msg);
       }
-      const { report } = (await res.json()) as { report: string };
+      const { report, state } = (await res.json()) as { report: string; state: string };
       setReadiness(report);
-      const today = new Date().toISOString().slice(0, 10);
+      setReadinessState(state ?? null);
       try {
-        localStorage.setItem("readiness-report", JSON.stringify({ date: today, report }));
+        localStorage.setItem(
+          REPORT_CACHE_KEY,
+          JSON.stringify({ ts: Date.now(), report, state: state ?? null }),
+        );
       } catch {
         /* ignore */
       }
@@ -360,13 +395,18 @@ export function DashboardClient() {
     if (!wellnessKpis || readinessStarted.current) return;
     readinessStarted.current = true;
 
-    const today = new Date().toISOString().slice(0, 10);
     try {
-      const cached = localStorage.getItem("readiness-report");
+      const cached = localStorage.getItem(REPORT_CACHE_KEY);
       if (cached) {
-        const parsed = JSON.parse(cached) as { date: string; report: string };
-        if (parsed.date === today && typeof parsed.report === "string" && parsed.report.trim()) {
+        const parsed = JSON.parse(cached) as { ts: number; report: string; state: string };
+        if (
+          typeof parsed.ts === "number" &&
+          Date.now() - parsed.ts < REPORT_CACHE_TTL_MS &&
+          typeof parsed.report === "string" &&
+          parsed.report.trim()
+        ) {
           setReadiness(parsed.report);
+          setReadinessState(parsed.state ?? null);
           return;
         }
       }
@@ -381,11 +421,12 @@ export function DashboardClient() {
   function handleRefreshReadiness() {
     if (!wellnessKpis || readinessLoading) return;
     try {
-      localStorage.removeItem("readiness-report");
+      localStorage.removeItem(REPORT_CACHE_KEY);
     } catch {
       /* ignore */
     }
     setReadiness(null);
+    setReadinessState(null);
     setReadinessError(null);
     fetchReadiness(wellnessKpis);
   }
@@ -477,11 +518,22 @@ export function DashboardClient() {
         </div>
       ) : (
         <>
-          {/* ── Morning Briefing ────────────────────────────── */}
+          {/* ── Daily Briefing ──────────────────────────────── */}
           {(readiness || readinessLoading || readinessError) && (
             <div className="briefingCard">
               <div className="row space-between">
-                <span className="briefingLabel">Morning Briefing</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                  <span className="briefingLabel">Daily Briefing</span>
+                  {readinessState && (
+                    <span className="briefingStateLabel">
+                      {readinessState === "pre-workout"
+                        ? "Pre-workout"
+                        : readinessState === "post-workout"
+                          ? "Post-workout"
+                          : "Evening"}
+                    </span>
+                  )}
+                </div>
                 <button
                   className="iconBtn"
                   onClick={handleRefreshReadiness}

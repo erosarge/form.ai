@@ -9,30 +9,108 @@ function getAnthropicEnv() {
   return { apiKey, model };
 }
 
-const READINESS_SYSTEM_PROMPT = [
-  "You are generating a morning readiness report for Eros, an endurance athlete targeting sub-80 minute half marathon and sub-17 minute 5k.",
-  "Be direct, specific, and concise. Sound like an experienced coach giving a pre-session briefing.",
-  "No markdown, no lists, plain paragraphs only. Maximum 4 sentences total.",
+const SHARED_RULES = [
+  "Be direct, specific, and concise. Sound like an experienced coach.",
+  "No markdown, no lists, plain paragraphs only. Maximum 4-5 sentences total.",
   "",
   "LANGUAGE RULES — follow strictly:",
-  "- Never use the acronyms TSB, CTL, ATL, or Form. These are internal training load numbers — translate them into plain English instead.",
-  "- Instead of CTL say things like 'your fitness base is solid', 'you've built a strong base over the past weeks', or 'your aerobic foundation is in good shape'.",
-  "- Instead of ATL say things like 'you've been carrying a good training load this week', 'your body is under significant load right now', or 'the fatigue from recent sessions is still in your legs'.",
-  "- Instead of TSB/Form say things like 'you're carrying good freshness today', 'you're well recovered and ready to push', or 'you need another day before going hard'.",
-  "- Never mention any of these acronyms even in passing — no parenthetical explanations, no 'your form (TSB)' constructions.",
+  "- Never use the acronyms TSB, CTL, ATL, or Form. Translate them into plain English.",
+  "- Instead of CTL say things like 'your fitness base is solid' or 'you've built a strong base over the past weeks'.",
+  "- Instead of ATL say things like 'you've been carrying a good training load this week' or 'the fatigue from recent sessions is still in your legs'.",
+  "- Instead of TSB/Form say things like 'you're carrying good freshness today' or 'you need another day before going hard'.",
+  "- Never mention any of these acronyms even in passing.",
   "",
   "ACTIVITY DATA RULES — follow strictly, no exceptions:",
-  "- Never invent, assume, or imply any activity that is not explicitly listed in RECENT ACTIVITIES with a specific date.",
-  "- TODAY and YESTERDAY dates are provided explicitly. Use them to identify which activities happened on each day.",
-  "- If there is no activity listed for YESTERDAY's date, the athlete rested yesterday. Say so plainly: 'you rested yesterday'.",
-  "- Never call a run a 'half marathon' unless the distance is at least 21 km. A 13 km run is a 13 km run. A 10 km run is a 10 km run. Use the actual distance from the data — do not round up to the nearest race distance.",
+  "- Never invent, assume, or imply any activity not explicitly listed in the data.",
+  "- Never call a run a 'half marathon' unless the distance is at least 21 km. Use the actual distance.",
+].join("\n");
+
+const PRE_WORKOUT_SYSTEM_PROMPT = [
+  "You are generating a morning readiness report for Eros, an endurance athlete targeting sub-80 minute half marathon and sub-17 minute 5k.",
+  SHARED_RULES,
   "",
   "STRUCTURE:",
   "1. A short greeting to Eros.",
   "2. One sentence overall readiness assessment.",
   "3. Two or three sentences explaining what the data shows — HRV, sleep, recent training load, and what happened yesterday — in plain coach language.",
-  "4. One final sentence that is a specific workout suggestion. Choose exactly one: a long easy run, an interval session, a tempo run, a short recovery run, a strength and gym session, or a rest day. Phrase it naturally, for example: 'A tempo run today would be a smart choice given how fresh you are.' or 'A 40 minute easy run is all your body needs today — save the quality for tomorrow.' or 'Take the day off — let the adaptation happen.'",
+  "4. One final sentence that is a specific workout suggestion. Choose exactly one: a long easy run, an interval session, a tempo run, a short recovery run, a strength and gym session, or a rest day. Phrase it naturally.",
 ].join("\n");
+
+const POST_WORKOUT_HARD_SYSTEM_PROMPT = [
+  "You are generating a post-hard-session recovery brief for Eros, an endurance athlete targeting sub-80 minute half marathon and sub-17 minute 5k.",
+  SHARED_RULES,
+  "",
+  "STRUCTURE:",
+  "1. Acknowledge today's session by its exact name and distance — brief and warm.",
+  "2. Tell Eros the hard work is done and recovery is now the priority.",
+  "3. Give two concrete recovery actions: eat a proper meal within 30-45 minutes if not already done, stay on top of hydration, and keep any remaining movement light or skip it entirely.",
+  "4. Sleep tonight is critical — target 8 or more hours to let the adaptation happen.",
+  "5. One sentence previewing tomorrow — should be easy or rest based on current fatigue level.",
+].join("\n");
+
+const POST_WORKOUT_EASY_SYSTEM_PROMPT = [
+  "You are generating a post-easy-session brief for Eros, an endurance athlete targeting sub-80 minute half marathon and sub-17 minute 5k.",
+  SHARED_RULES,
+  "",
+  "STRUCTURE:",
+  "1. Acknowledge today's session by name and note it was light or easy.",
+  "2. One sentence on how Eros is doing — reference HRV, freshness, or recent load briefly.",
+  "3. If the athlete looks fresh (positive or near-zero form score), suggest one optional complementary activity for later — e.g. 20 minutes of strength work, a short walk, or stretching. If fatigued, affirm rest.",
+  "4. One evening recommendation — stay hydrated, eat well, get to bed at a reasonable time.",
+].join("\n");
+
+const EVENING_SYSTEM_PROMPT = [
+  "You are generating an evening check-in for Eros, an endurance athlete targeting sub-80 minute half marathon and sub-17 minute 5k.",
+  SHARED_RULES,
+  "",
+  "STRUCTURE:",
+  "1. Note the day is coming to an end. No judgment on not training — just acknowledge it matter-of-factly.",
+  "2. Sleep recommendation: based on this week's accumulated training load, give a specific target — heavier weeks need more recovery (e.g. 'aim for 8 to 9 hours tonight').",
+  "3. One sentence previewing tomorrow — what kind of session makes sense based on current fatigue and readiness.",
+].join("\n");
+
+type ReportState = "pre-workout" | "post-workout-hard" | "post-workout-easy" | "evening";
+type ClientState = "pre-workout" | "post-workout" | "evening";
+
+interface TodayActivity {
+  name: string;
+  distanceM: number | null;
+  avgHr: number | null;
+  trainingLoad: number | null;
+  type: string | null;
+}
+
+function determineState(currentHour: number, todayActivities: TodayActivity[]): ReportState {
+  if (todayActivities.length > 0) {
+    const hasHard = todayActivities.some(
+      (a) =>
+        (a.trainingLoad != null && a.trainingLoad > 40) ||
+        (a.avgHr != null && a.avgHr > 145),
+    );
+    return hasHard ? "post-workout-hard" : "post-workout-easy";
+  }
+  if (currentHour >= 19) return "evening";
+  return "pre-workout";
+}
+
+function stateToClientLabel(state: ReportState): ClientState {
+  if (state === "post-workout-hard" || state === "post-workout-easy") return "post-workout";
+  if (state === "evening") return "evening";
+  return "pre-workout";
+}
+
+function systemPromptForState(state: ReportState): string {
+  switch (state) {
+    case "post-workout-hard":
+      return POST_WORKOUT_HARD_SYSTEM_PROMPT;
+    case "post-workout-easy":
+      return POST_WORKOUT_EASY_SYSTEM_PROMPT;
+    case "evening":
+      return EVENING_SYSTEM_PROMPT;
+    default:
+      return PRE_WORKOUT_SYSTEM_PROMPT;
+  }
+}
 
 function fmtNum(v: number | null, decimals = 0): string {
   if (v == null) return "unavailable";
@@ -70,10 +148,19 @@ export async function POST(request: Request) {
 
   const { apiKey, model } = getAnthropicEnv();
 
-  // Compute today and yesterday in local ISO date (YYYY-MM-DD)
   const todayDate = new Date().toISOString().slice(0, 10);
   const yesterdayMs = Date.now() - 86400000;
   const yesterdayDate = new Date(yesterdayMs).toISOString().slice(0, 10);
+
+  // Determine state from client-provided context
+  const currentHour = typeof body.currentHour === "number" ? body.currentHour : new Date().getHours();
+  const todayActivities: TodayActivity[] = Array.isArray(body.todayActivities)
+    ? (body.todayActivities as TodayActivity[])
+    : [];
+
+  const state = determineState(currentHour, todayActivities);
+  const clientState = stateToClientLabel(state);
+  const systemPrompt = systemPromptForState(state);
 
   // Fetch recent activities for context
   let recentActivitiesSummary = "No recent activity data available.";
@@ -83,7 +170,6 @@ export async function POST(request: Request) {
     if (activities.length === 0) {
       recentActivitiesSummary = "No activities recorded in the last 7 days.";
     } else {
-      // Sort newest first so the most recent session is always at the top
       const sorted = [...activities].sort((a: any, b: any) => {
         const da = (a.start_date_local ?? a.date ?? "").slice(0, 10);
         const db = (b.start_date_local ?? b.date ?? "").slice(0, 10);
@@ -127,11 +213,27 @@ export async function POST(request: Request) {
   const ctl = num("ctl");
   const atl = num("atl");
 
+  // Build today's sessions summary for post-workout states
+  let todaySessionsSummary = "No session recorded today.";
+  if (todayActivities.length > 0) {
+    todaySessionsSummary = todayActivities
+      .map((a) => {
+        const distKm = a.distanceM != null ? `${(a.distanceM / 1000).toFixed(2)} km` : null;
+        const hr = a.avgHr != null ? `avg HR ${Math.round(a.avgHr)} bpm` : null;
+        const load = a.trainingLoad != null ? `training load ${Math.round(a.trainingLoad)}` : null;
+        return [a.name ?? "Session", a.type, distKm, hr, load].filter(Boolean).join(", ");
+      })
+      .join("\n");
+  }
+
   const userMessage = [
-    "Generate a morning readiness report based on this data:",
+    `STATE: ${state} (hour: ${currentHour})`,
     "",
     `TODAY: ${todayDate}`,
     `YESTERDAY: ${yesterdayDate}`,
+    "",
+    "TODAY'S SESSION(S):",
+    todaySessionsSummary,
     "",
     "RECOVERY METRICS:",
     `HRV last night: ${fmtNum(hrvLastNight, 1)}ms`,
@@ -145,7 +247,7 @@ export async function POST(request: Request) {
     `Fitness base score: ${fmtNum(ctl)}`,
     `Recent load score: ${fmtNum(atl)}`,
     "",
-    `RECENT ACTIVITIES (last 7 days, sorted newest first — each line is one session with its exact date; if no activity is listed for ${yesterdayDate} (YESTERDAY), the athlete rested):`,
+    `RECENT ACTIVITIES (last 7 days, sorted newest first; if no activity listed for ${yesterdayDate} the athlete rested):`,
     recentActivitiesSummary,
   ].join("\n");
 
@@ -159,7 +261,7 @@ export async function POST(request: Request) {
     body: JSON.stringify({
       model,
       max_tokens: 512,
-      system: READINESS_SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     }),
   });
@@ -175,5 +277,5 @@ export async function POST(request: Request) {
   const json = await anthropicRes.json();
   const report: string = json?.content?.[0]?.text ?? "";
 
-  return NextResponse.json({ report });
+  return NextResponse.json({ report, state: clientState });
 }
