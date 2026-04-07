@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="32" height="32">
+  <!-- Outer arc -->
+  <path d="M32 4 A28 28 0 1 1 10 50" fill="none" stroke="#a3c45a" stroke-width="2.8" stroke-linecap="round"/>
+  <!-- Leading edge dot -->
+  <circle cx="10" cy="50" r="4" fill="#a3c45a"/>
+</svg>
