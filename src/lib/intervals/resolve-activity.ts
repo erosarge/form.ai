@@ -20,6 +20,33 @@ export function sortActivitiesNewestFirst(activities: unknown): AnyRecord[] {
   });
 }
 
+/**
+ * Detect an explicit activity type from the user's message.
+ * Returns a predicate that matches Intervals.icu type strings, or null if no type is implied.
+ */
+export function inferActivityTypeFilter(message: string): ((type: string) => boolean) | null {
+  const m = message.toLowerCase();
+  // Patterns like "my last run", "last swim", "today's ride", "my last strength session"
+  const runPattern = /\b(last|latest|recent|today'?s|yesterday'?s)\s+(run|runs|running)\b/;
+  const swimPattern = /\b(last|latest|recent|today'?s|yesterday'?s)\s+(swim|swims|swimming)\b/;
+  const ridePattern = /\b(last|latest|recent|today'?s|yesterday'?s)\s+(ride|rides|cycling|bike|biking|cycle)\b/;
+  const strengthPattern = /\b(last|latest|recent|today'?s|yesterday'?s)\s+(strength|lifting|weights|weight\s+training|gym)\s*(session|workout)?\b/;
+
+  if (runPattern.test(m)) {
+    return (type: string) => type.toLowerCase() === "run";
+  }
+  if (swimPattern.test(m)) {
+    return (type: string) => type.toLowerCase() === "swim";
+  }
+  if (ridePattern.test(m)) {
+    return (type: string) => ["ride", "virtualride"].includes(type.toLowerCase());
+  }
+  if (strengthPattern.test(m)) {
+    return (type: string) => ["weighttraining", "strength", "workout"].includes(type.toLowerCase());
+  }
+  return null;
+}
+
 export function wantsSessionDeepDive(message: string): boolean {
   const m = message.toLowerCase();
   if (m.length < 2) return false;
@@ -60,7 +87,15 @@ export function resolveActivityIdForChat({
 
   const lower = message.toLowerCase();
   if (/\b(last|latest|most recent|this run|that run|today'?s run|yesterday'?s run)\b/i.test(message)) {
-    const id = pickString(sorted[0] ?? {}, ["id"]);
+    // Filter by activity type if the message specifies one (e.g. "last run" vs "last swim")
+    const typeFilter = inferActivityTypeFilter(message);
+    const candidates = typeFilter
+      ? sorted.filter((a) => {
+          const t = pickString(a, ["type"]) ?? "";
+          return typeFilter(t);
+        })
+      : sorted;
+    const id = pickString(candidates[0] ?? {}, ["id"]);
     return id;
   }
 

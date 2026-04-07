@@ -9,6 +9,7 @@ import {
 } from "@/lib/intervals/intervals-client";
 import { buildSessionAnalysisFromActivity } from "@/lib/intervals/session-analysis";
 import {
+  inferActivityTypeFilter,
   resolveActivityIdForChat,
   sortActivitiesNewestFirst,
   wantsSessionDeepDive,
@@ -131,9 +132,15 @@ function pickString(obj: Record<string, unknown>, keys: string[]) {
   return null;
 }
 
-function defaultRunActivityId(activities: unknown): string | null {
+function defaultActivityId(activities: unknown, message: string): string | null {
   const sorted = sortActivitiesNewestFirst(activities);
   if (!sorted.length) return null;
+  // Respect the activity type the user mentioned (e.g. "my last swim"), otherwise default to most recent run
+  const typeFilter = inferActivityTypeFilter(message);
+  if (typeFilter) {
+    const match = sorted.find((a) => typeFilter(pickString(a, ["type"]) ?? ""));
+    return pickString(match ?? sorted[0] ?? {}, ["id"]);
+  }
   const run = sorted.find((a) => {
     const t = (pickString(a, ["type"]) || "").toLowerCase();
     return t === "run" || t.includes("run");
@@ -324,7 +331,7 @@ export async function POST(request: Request) {
     });
 
     if (!activityId) {
-      activityId = defaultRunActivityId(recent.activities);
+      activityId = defaultActivityId(recent.activities, message);
     }
 
     if (activityId) {

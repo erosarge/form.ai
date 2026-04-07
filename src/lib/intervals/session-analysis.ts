@@ -394,6 +394,34 @@ function classifySessionType(
   const fastLaps = medP != null ? paces.filter((p) => p < medP * 0.97).length : 0;
   const slowLaps = medP != null ? paces.filter((p) => p > medP * 1.06).length : 0;
 
+  // Detect embedded intervals: 3+ laps >45 sec/km faster than the session median,
+  // bookended by slower aerobic laps before AND after (warm-up + cool-down structure).
+  const EMBEDDED_INTERVAL_DELTA = 45; // sec/km faster than session median to be "fast"
+  let embeddedIntervalLike = false;
+  let embeddedFastCount = 0;
+  let embeddedWarmupDist: number | null = null;
+  let embeddedCooldownDist: number | null = null;
+
+  if (medP != null && pl.length >= 6) {
+    const fastThreshold = medP - EMBEDDED_INTERVAL_DELTA;
+    const isFast = (pace: number) => pace < fastThreshold;
+    const firstFastPos = pl.findIndex((l) => isFast(l.pace_sec_per_km!));
+    const lastFastPos = pl.length - 1 - [...pl].reverse().findIndex((l) => isFast(l.pace_sec_per_km!));
+
+    if (firstFastPos > 0 && lastFastPos < pl.length - 1) {
+      const fastBlock = pl.slice(firstFastPos, lastFastPos + 1).filter((l) => isFast(l.pace_sec_per_km!));
+      const beforeFast = pl.slice(0, firstFastPos);
+      const afterFast = pl.slice(lastFastPos + 1);
+
+      if (fastBlock.length >= 3 && beforeFast.length >= 2 && afterFast.length >= 2) {
+        embeddedIntervalLike = true;
+        embeddedFastCount = fastBlock.length;
+        embeddedWarmupDist = beforeFast.reduce((s, l) => s + (l.distance_m ?? 0), 0) || null;
+        embeddedCooldownDist = afterFast.reduce((s, l) => s + (l.distance_m ?? 0), 0) || null;
+      }
+    }
+  }
+
   const intervalLike =
     (hasRecoveryBetweenHard && multiWork) ||
     (relSpread != null &&
@@ -433,7 +461,10 @@ function classifySessionType(
   let session_type: SessionType;
   let rationale: string;
 
-  if (intervalLike) {
+  if (embeddedIntervalLike) {
+    session_type = "MIXED_SESSION";
+    rationale = `Run with embedded interval block: ${embeddedFastCount} fast laps (>${EMBEDDED_INTERVAL_DELTA}s/km faster than session median) surrounded by aerobic warm-up${embeddedWarmupDist ? ` (~${Math.round(embeddedWarmupDist / 100) * 100}m)` : ""} and cool-down${embeddedCooldownDist ? ` (~${Math.round(embeddedCooldownDist / 100) * 100}m)` : ""}.`;
+  } else if (intervalLike) {
     session_type = "INTERVAL_SESSION";
     rationale =
       hasRecoveryBetweenHard && multiWork
@@ -521,6 +552,20 @@ function classifySessionType(
     ].join(" "),
   };
 
+  const embeddedIntervalInstructions = embeddedIntervalLike
+    ? [
+        "SESSION_TYPE: MIXED_SESSION with embedded interval block.",
+        "STRUCTURE YOUR ANALYSIS EXACTLY AS FOLLOWS — do NOT flatten this into a single average pace:",
+        "1. Open with the full session structure in one sentence: total distance, warm-up distance and approximate pace, interval block summary (number of reps and approximate target distance/pace), cool-down distance and pace.",
+        "2. Describe the WARM-UP: distance covered, pace, how it felt as an aerobic primer.",
+        "3. Describe EACH INTERVAL REP individually: state its distance, pace, and HR. Note pace drift and HR escalation rep by rep.",
+        "4. Comment on recovery laps between reps if present (duration, HR drop, whether recovery was complete).",
+        "5. Describe the COOL-DOWN: distance, pace, HR — note whether the athlete was managing fatigue.",
+        "RUNNING DYNAMICS — if avg_stride_length_m or other dynamics are present in laps, comment on how mechanics changed from aerobic sections into the interval block and back.",
+        "End with one specific recommendation — e.g. target paces for next interval session, recovery advice, or volume adjustment.",
+      ].join(" ")
+    : null;
+
   const classification: SessionClassification = {
     session_type,
     rationale,
@@ -536,7 +581,7 @@ function classifySessionType(
       work_phase_count: workCount,
       phase_count: phaseCount,
     },
-    ai_instructions: aiMap[session_type],
+    ai_instructions: embeddedIntervalInstructions ?? aiMap[session_type],
   };
 
   const single_effort_summary =
