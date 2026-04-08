@@ -27,6 +27,7 @@ export async function GET() {
 
   // PGRST116 = no rows found — not an error, just no settings saved yet
   if (error && error.code !== "PGRST116") {
+    console.error("[settings GET] Supabase error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -61,6 +62,7 @@ export async function PUT(request: Request) {
   });
 
   if (error) {
+    console.error("[settings PUT] Supabase upsert error:", error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

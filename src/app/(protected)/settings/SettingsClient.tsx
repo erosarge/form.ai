@@ -107,7 +107,8 @@ export function SettingsClient({ userEmail }: { userEmail?: string }) {
       }
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
-    } catch {
+    } catch (err) {
+      console.error("[settings] save failed:", err);
       setSaveStatus("error");
     } finally {
       setSaving(false);
