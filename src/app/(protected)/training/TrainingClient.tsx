@@ -124,8 +124,7 @@ type ChartPoint = {
   typeLabel: string;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function ChartTooltipContent({ active, payload }: any) {
+function ChartTooltipContent({ active, payload }: { active?: boolean; payload?: { payload: ChartPoint }[] }) {
   if (!active || !payload?.length) return null;
   const d: ChartPoint = payload[0]?.payload;
   if (!d) return null;
