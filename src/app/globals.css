@@ -540,28 +540,50 @@ a {
   min-height: 0;
 }
 
-/* ── Settings ───────────────────────────────────────────── */
-.settingsGoal {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
+/* ── Settings Form ──────────────────────────────────────── */
+.settingsFields {
+  display: grid;
+  gap: 16px;
 }
 
-.settingsGoal:last-child {
-  border-bottom: none;
+.settingsRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
-.settingsGoalLabel {
-  font-size: 14px;
-  color: var(--text-secondary);
+@media (max-width: 480px) {
+  .settingsRow {
+    grid-template-columns: 1fr;
+  }
 }
 
-.settingsGoalTarget {
-  font-size: 14px;
+.settingsLabel {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
   font-weight: 500;
-  color: var(--accent);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.inputWithUnit {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.inputWithUnit .input {
+  padding-right: 40px;
+}
+
+.inputUnit {
+  position: absolute;
+  right: 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
 }
 
 /* ── Utility ────────────────────────────────────────────── */
