@@ -48,22 +48,33 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { error } = await supabase.from("user_settings").upsert({
-    user_id: user.id,
-    athlete_name: body.athlete_name ?? null,
-    height_cm: body.height_cm ?? null,
-    weight_kg: body.weight_kg ?? null,
-    goal_5k: body.goal_5k ?? null,
-    goal_10k: body.goal_10k ?? null,
-    goal_half_marathon: body.goal_half_marathon ?? null,
-    goal_marathon: body.goal_marathon ?? null,
-    other_goals: body.other_goals ?? null,
-    updated_at: new Date().toISOString(),
-  });
+  const { error } = await supabase.from("user_settings").upsert(
+    {
+      user_id: user.id,
+      athlete_name: body.athlete_name ?? null,
+      height_cm: body.height_cm ?? null,
+      weight_kg: body.weight_kg ?? null,
+      goal_5k: body.goal_5k ?? null,
+      goal_10k: body.goal_10k ?? null,
+      goal_half_marathon: body.goal_half_marathon ?? null,
+      goal_marathon: body.goal_marathon ?? null,
+      other_goals: body.other_goals ?? null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
 
   if (error) {
-    console.error("[settings PUT] Supabase upsert error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[settings PUT] Supabase upsert error:", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    });
+    return NextResponse.json(
+      { error: error.message, code: error.code },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json({ ok: true });

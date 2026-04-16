@@ -35,6 +35,7 @@ export function SettingsClient({ userEmail }: { userEmail?: string }) {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">(
     "idle",
   );
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [signOutBusy, setSignOutBusy] = useState(false);
 
   useEffect(() => {
@@ -86,6 +87,7 @@ export function SettingsClient({ userEmail }: { userEmail?: string }) {
   async function handleSave() {
     setSaving(true);
     setSaveStatus("idle");
+    setSaveError(null);
     try {
       const res = await fetch("/api/settings", {
         method: "PUT",
@@ -103,13 +105,16 @@ export function SettingsClient({ userEmail }: { userEmail?: string }) {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to save");
+        const msg = body?.error ?? "Failed to save";
+        console.error("[settings] save failed — HTTP", res.status, body);
+        throw new Error(msg);
       }
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
     } catch (err) {
       console.error("[settings] save failed:", err);
       setSaveStatus("error");
+      setSaveError(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -273,7 +278,7 @@ export function SettingsClient({ userEmail }: { userEmail?: string }) {
         )}
         {saveStatus === "error" && (
           <span className="error" style={{ fontSize: 13 }}>
-            Failed to save
+            {saveError ?? "Failed to save"}
           </span>
         )}
       </div>
