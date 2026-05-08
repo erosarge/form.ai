@@ -4,7 +4,7 @@ import { fetchIntervalsRecent } from "@/lib/intervals/intervals-client";
 
 function getAnthropicEnv() {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-0";
+  const model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6-20250514";
   if (!apiKey) throw new Error("Missing ANTHROPIC_API_KEY in environment.");
   return { apiKey, model };
 }

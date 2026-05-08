@@ -20,8 +20,8 @@ INTERVALS_ICU_ATHLETE_ID="0"
 
 # Claude (Anthropic)
 ANTHROPIC_API_KEY="YOUR_ANTHROPIC_API_KEY"
-# Optional (defaults to claude-sonnet-4-0)
-ANTHROPIC_MODEL="claude-sonnet-4-0"
+# Optional (defaults to claude-sonnet-4-6-20250514)
+ANTHROPIC_MODEL="claude-sonnet-4-6-20250514"
 ```
 
 3. Run dev server:
